@@ -13,7 +13,7 @@ preserving code legibility and concision.
 
 ** Roadmap
 
-- [ ] Prototype
+- [X] Prototype
 - [ ] Specification
 - [ ] Implementation
   - [ ] Parser

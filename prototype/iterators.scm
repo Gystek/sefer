@@ -111,6 +111,20 @@
 			    state))))
     (iterator (cons n it) next)))
 
+					; iter-take - create an iterator, yielding the first n elements
+					;
+					; Int -> Iterator a -> Iterator a
+(define (iter-take n it)
+  (let ((next (lambda (state)
+		(apply-cons (lambda (n it)
+			      (if (> n 0)
+				  (apply-cons (lambda (x it)
+						(cons x (cons (- n 1) it)))
+					      (iter-next it))
+				  empty-iterator))
+			    state))))
+    (iterator (cons n it) next)))
+
 					; iter-skip-while - create an iterator, skipping the first elements matching a predicate
 					;
 					; (a -> Boolean) -> Iterator a -> Iterator a
@@ -126,6 +140,24 @@
 						 (cons x (cons #t it)))
 					       (iter-find np? it))))
 			     state))))
+    (iterator (cons #f it) next)))
+
+					; iter-take-while - create an iterator, taking the first elements matching a predicate
+					;
+					; (a -> Boolean) -> Iterator a -> Iterator a
+(define (iter-take-while p? it)
+  (let ((next (lambda (state)
+		(apply-cons (lambda (found it)
+			      (if found
+				  empty-iterator
+				  (apply-cons (lambda (x it)
+						(cond
+						 ((null? x) empty-iterator)
+						 ((p? x)
+						  (cons x (cons #f it)))
+						 (else (cons '() (cons #t it)))))
+					      (iter-next it))))
+			    state))))
     (iterator (cons #f it) next)))
 
 					; iter-filter - create an iterator, filtering out elements not matching a predicate
