@@ -1,0 +1,42 @@
+\documentclass[10pt]{report}
+
+\usepackage{listings}
+\usepackage{multicol}
+\usepackage{microtype}
+\usepackage[margin=1in]{geometry}
+\usepackage{titlesec}
+\usepackage{polyglossia}
+\setmainlanguage{english}
+\setotherlanguage{hebrew}
+\newfontfamily{\hebrewfont}{Noto Serif Hebrew}
+
+\titleformat{\chapter}
+            {\normalfont\LARGE\bfseries}{\thechapter}{1em}{}
+\titlespacing*{\chapter}{0pt}{3.5ex plus 1ex minus .2ex}{2.3ex plus
+  .2ex}
+
+\def\version{0.1.0}
+
+\title{\textbf{Draft Specification for the Sefer Programming Language}
+  \\ \vspace{1em} \normalsize Version \version}
+\author{Gustek}
+
+\begin{document}
+\maketitle
+\begin{multicols*}{2}
+  \tableofcontents
+\end{multicols*}
+
+\lstset{captionpos=b,basicstyle=\ttfamily}
+
+\include{introduction}
+\include{syntax}
+\include{expressions_types}
+\include{program_structure}
+
+\appendix
+
+\include{stdlib}
+\include{formal_grammar}
+
+\end{document}
