@@ -1,1 +1,60 @@
 \chapter{Lexical conventions and syntax}
+
+\begin{multicols*}{2}
+
+  \section{Whitespaces and comments}
+
+  A whitespace is any UTF-8 character defined as a
+  whitespace. One-line comments begin with \verb|--| and standard
+  (multiline) comments are delimited by \verb|{-| and
+  \verb|-}|. Comments are valid separators where a whitespace is
+  expected.
+
+  \section{Keywords and identifiers}
+
+  There are fourteen keywords, which are reserved identifiers:
+  \verb|let|, \verb|data|, \verb|type|, \verb|class|, \verb|fun|,
+  \verb|impl|, \verb|if|, \verb|then|, \verb|else|, \verb|pub|,
+  \verb|mod|, \verb|import|, \verb|match| and \verb|with|.
+
+  An identifier is any string of non-whitespace characters, excluding
+  \verb|:| (which is used for type specification), \verb|~| (used for
+  type constraints), \verb|,| (used for tuples), \verb|=|, \verb|(|
+  and \verb|)|. An identifier cannot start with \verb|;|, as it would
+  be read as a comment instead, nor can it start with a
+  number. \verb|+|, \verb|==|, \verb|pair?| and \verb+|+ are thus
+  valid identifiers, while \verb|foo:bar| and \verb|string=| are not.
+
+  Functions that return a boolean value usually have names suffixed with
+  the \verb|?| character. Names of bindings and type variables are
+  lowercase while names of types, typeclasses and \verb|data| values are
+  capitalised. The Sefer compiler enforces these conventions.
+
+  \section{Literals and syntactic sugar}
+
+  \subsection{Numbers}
+
+  Numbers can be written in base 10 (without prefix), 16 (using the
+  \verb|0x| prefix) and 2 (using the \verb|0b| prefix). Negated integers
+  do not exist lexically and are instead computed dynamically (using the
+  \verb|—| function --- see the standard library specification on this
+  matter). Floating point numbers can be written in the three following
+  ways: \verb|3.14|, \verb|3.| and \verb|.14|.
+
+  \subsection{Characters}
+
+  Characters are written enclosed in single quotes \verb|'|. Every UTF-8
+  character is a valid character in Sefer and the special character
+  escapes (such as \verb|\0|, \verb|\n|, etc.) supported by the official
+  Rust compiler are supported.
+
+  ``Character strings'' (which do not exist as a primitive type in
+  Sefer) can be constructed by surrounding several characters with
+  double quotes \verb|"|. The string \verb|"foo"| will be expanded to
+  \verb|['f', 'o', 'o']| which will in turn be expanded to
+  \verb|(Cons 'f' (Cons 'o' (Cons 'o' Nil)))| (see the standard library
+  specification on this matter)\footnotemark.
+  \footnotetext{The expansion is actually carried out directly by the
+    parser, with no intermediary representation.}
+
+\end{multicols*}
