@@ -14,13 +14,7 @@ Roadmap
 
 - [x] Prototype
 - [ ] Specification
-- [ ] Implementation
-  - [ ] Parser
-  - [ ] Typechecker
-  - [ ] Optimisations
-  - [ ] Codegen
-  - [ ] Virtual machine
-  - [ ] Standard library
+- [ ] Implementation (see [[ROADMAP_compiler.markdown]])
 
 Licence
 -------
