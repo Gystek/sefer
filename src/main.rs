@@ -1,0 +1,4 @@
+mod location;
+
+fn main() {
+}
