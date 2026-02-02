@@ -13,3 +13,5 @@ appear in in the compiling pipeline.
 - [ ] Currying emulation (constructors & functions) & argument count checking
 - [ ] Bidirectional typechecking
 - [ ] Constructor type variables elimination (`Maybe Int` -> `MaybeInt`)
+
+- [ ] Iterator folding
