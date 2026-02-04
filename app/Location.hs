@@ -1,4 +1,4 @@
-module Location ( Location(..) ) where
+module Location ( Location(..), Located ) where
 
 import Data.Text
 
@@ -15,3 +15,5 @@ instance Show Location where
       ++ if sl == el
          then show ec
          else show el ++ "." ++ show ec
+
+type Located = (,) Location
