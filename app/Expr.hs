@@ -4,7 +4,6 @@ import Control.Comonad.Cofree
 import Data.Text
 import Literal ( Literal )
 import Location
-import Pattern ( LocPattern )
 import Type ( Type0 )
 
 data Expr a = Literal Literal
@@ -18,6 +17,9 @@ data Expr a = Literal Literal
             -- let 0 = 1 in 2 ; same comment as for `Abs`
             | Let a a a
             | Cond a a a
+            -- a pattern is actually a subset of an expression where variables are bindings
+            -- way easier to typecheck that way
+            | Match a [(a, a, a)]
 
 type LocExprTP0 = Cofree Expr (Maybe Type0, Location)
 type LocExprTF0 = Cofree Expr (Type0, Location)

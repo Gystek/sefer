@@ -1,7 +1,7 @@
-module Statement ( ADType(..), SumConstructor(..) ) where
+module Statement ( ADType(..), Constructor(..) ) where
 
 import Type ( Type0 )
 
 data ADType = ADType { nVar :: Int }
 
-data SumConstructor = SumConstructor { parent :: Int, targs :: [Type0] }
+data Constructor = Constructor { parent :: Int, targs :: [Type0] }

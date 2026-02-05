@@ -68,9 +68,9 @@ executable sefer
     other-modules:    Expr
                     , Literal
                     , Location
-                    , Pattern
                     , Type
                     , Typecheck
+                    , Utils
                     , Statement
 
     -- LANGUAGE extensions used by modules in this package.

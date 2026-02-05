@@ -12,6 +12,8 @@ appear in in the compiling pipeline.
 - [ ] Type aliases elimination
 - [ ] Currying emulation (constructors & functions) & argument count checking
 - [ ] Bidirectional typechecking
+- [ ] Polymorphism
 - [ ] Constructor type variables elimination (`Maybe Int` -> `MaybeInt`)
+- [ ] Compiling pattern matching to good decision trees
 
 - [ ] Iterator folding

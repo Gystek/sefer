@@ -11,4 +11,4 @@ data Type0 = Character
            -- data T a b = ...
            -- T Int Int :: Data 0 [Int Int]
            | Data Int [Type0]
-             deriving (Show)
+             deriving (Show, Eq)
