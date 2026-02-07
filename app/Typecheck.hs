@@ -117,6 +117,7 @@ tcExpr ((t, loc) :< Expr.Tuple el) = do
       else checkLists loc targs targs1
       pure $ (Just $ Type.Tuple targs, loc) :< Expr.Tuple ela
     Just t -> throwError (loc, HeteroPrim t $ Type.Tuple targs)
+-- TODO: handle currying
 tcExpr ((t, loc) :< Expr.App ((tf, loc1) :< Expr.Abs fargs expr) cargs) = do
   ctargs <- mapM tcExpr cargs
   let f = (tf, loc1) :< Expr.Abs fargs expr
@@ -144,8 +145,11 @@ tcExpr ((t, loc) :< Expr.App f cargs) = do
       if Prelude.length targs /= Prelude.length ctargs
         then throwError (loc, FunArity (Prelude.length targs) (Prelude.length ctargs))
         else checkLists loc targs $ Prelude.map extractType ctargs
-      pure $ tr
-    Type.Variable _ -> Type.Variable <$> newVar
+      pure tr
+    Type.Variable i -> do
+      tr <- Type.Variable <$> newVar
+      addEq (Type.Variable i) $ flip Type.Fun tr $ Prelude.map extractType ctargs
+      pure tr
     t -> newVar >>= \i -> throwError (loc, HeteroPrim t $ flip Type.Fun (Type.Variable i) $ Prelude.map extractType ctargs)
   let e = (Just tr, loc) :< Expr.App ft ctargs
   case t of
@@ -179,6 +183,7 @@ tcExpr ((t, loc) :< Expr.Abs fargs expr) = do
       unify loc
       pure et
     Just t -> throwError (loc, HeteroPrim t te)
+-- TODO: handle currying
 tcExpr ((t, loc) :< Expr.Const i args) = do
   argst <- mapM tcExpr args
   tc@Typechecker { scs, adts } <- get

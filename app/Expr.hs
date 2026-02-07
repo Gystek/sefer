@@ -19,7 +19,7 @@ data Expr a = Literal Literal
             | Cond a a a
             -- a pattern is actually a subset of an expression where variables are bindings
             -- way easier to typecheck that way
-            | Match a [(a, a, a)]
+            | Match a [(a, a, a)] -- TODO: separate patterns
 
 type LocExprTP0 = Cofree Expr (Maybe Type0, Location)
 type LocExprTF0 = Cofree Expr (Type0, Location)
