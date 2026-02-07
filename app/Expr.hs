@@ -1,25 +1,25 @@
-module Expr ( Expr(..), LocExprTP0, LocExprTF0 ) where
+module Expr ( Expr(..), Branch(..), LocExprT ) where
 
-import Control.Comonad.Cofree
 import Data.Text
 import Literal ( Literal )
 import Location
-import Type ( Type0 )
+import Pattern
+import Type ( Type )
 
-data Expr a = Literal Literal
-            | Tuple [a]
-            | Binding Text
-            | Var Text
-            | Const Int [a]
-            | App a [a]
-            -- `a` and not `Text` because the arguments carry a type
-            | Abs [a] a
-            -- let 0 = 1 in 2 ; same comment as for `Abs`
-            | Let a a a
-            | Cond a a a
-            -- a pattern is actually a subset of an expression where variables are bindings
-            -- way easier to typecheck that way
-            | Match a [(a, a, a)] -- TODO: separate patterns
+data Expr a = Literal { ann :: a, lit :: Literal }
+            | Tuple { ann :: a, els :: [Expr a] }
+            | Var { ann :: a, v :: Text }
+            | Const { ann :: a, k :: Int, cargs :: [Expr a] }
+            | App { ann :: a, f :: Expr a, args :: [Expr a] }
+            | Abs { ann :: a, fargs :: [(Text, a)], e :: Expr a }
+            -- let x = y in z
+            | Let { ann :: a, x :: (Text, a), y :: Expr a, z :: Expr a }
+            | Cond { ann :: a, ei :: Expr a, et :: Expr a, ee :: Expr a }
+            | Match { ann :: a, e :: Expr a, branches :: [Branch a] }
 
-type LocExprTP0 = Cofree Expr (Maybe Type0, Location)
-type LocExprTF0 = Cofree Expr (Type0, Location)
+data Branch a = Branch { pat :: Pattern a
+                       , guard :: Maybe (Expr a)
+                       , body :: Expr a
+                       }
+
+type LocExprT = Expr (Maybe Type, Location)

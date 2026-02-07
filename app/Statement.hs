@@ -1,7 +1,7 @@
 module Statement ( ADType(..), Constructor(..) ) where
 
-import Type ( Type0 )
+import Type
 
 data ADType = ADType { nVar :: Int }
 
-data Constructor = Constructor { parent :: Int, targs :: [Type0] }
+data Constructor = Constructor { parent :: Int, targs :: [Type] }

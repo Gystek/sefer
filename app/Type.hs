@@ -1,14 +1,14 @@
-module Type ( Type0(..) ) where
+module Type ( Type(..) ) where
 
-data Type0 = Character
+data Type = Character
            | Integer
            | Floating
            | Boolean
-           | Tuple [Type0]
+           | Tuple [Type]
            -- TODO: add rigid tvars
            | Variable Int
-           | Fun [Type0] Type0
+           | Fun [Type] Type
            -- data T a b = ...
            -- T Int Int :: Data 0 [Int Int]
-           | Data Int [Type0]
+           | Data Int [Type]
              deriving (Show, Eq)
