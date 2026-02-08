@@ -29,6 +29,7 @@ data TCError = HeteroPrim Type Type
              | TupleArity Int Int
              | FunArity Int Int
              | CallArity Int Int
+             | ConstArity Int Int
              | WrongADT Int Int
              deriving (Show)
 
@@ -102,6 +103,10 @@ extractTypeP p = case Pattern.ann p of
 checkLists :: Location -> [Type] -> [Type] -> StateT Typechecker Result ()
 checkLists loc (x:xs) (y:ys) = addEq x y >> checkLists loc xs ys
 checkLists loc [] [] = unify loc
+-- works for curried applications:
+-- f : a -> b -> c, x : a => f x : b -> c
+-- checkLists _ [a b] [a] -> checkLists _ [b] []
+checkLists loc _ [] = unify loc
 
 tcExpr :: LocExprT -> StateT Typechecker Result LocExprT
 tcExpr e@(Expr.Literal (t, loc) l) = let tt = getType l
@@ -124,11 +129,10 @@ tcExpr (Expr.Tuple (t, loc) el) = do
       pure $ Expr.Tuple (t, loc) ela
     Just (Type.Tuple targs1) -> do
       if Prelude.length targs /= Prelude.length targs1
-      then throwError (loc, TupleArity (Prelude.length targs) (Prelude.length targs1))
+      then throwError (loc, TupleArity (Prelude.length targs1) (Prelude.length targs))
       else checkLists loc targs targs1
       pure $ Expr.Tuple (Just $ Type.Tuple targs, loc) ela
     Just t -> throwError (loc, HeteroPrim t $ Type.Tuple targs)
--- TODO: handle currying
 tcExpr (Expr.App (t, loc) (Expr.Abs (tf, loc1) fargs expr) cargs) = do
   ctargs <- mapM tcExpr cargs
   let f = Expr.Abs (tf, loc1) fargs expr
@@ -137,11 +141,15 @@ tcExpr (Expr.App (t, loc) (Expr.Abs (tf, loc1) fargs expr) cargs) = do
   -- (\xyz -> e) a b c |- t(x) = t(a), t(y) = t(b), t(z) = t(c)
   let targs = Prelude.map (fromJust . fst . snd) ftargs
   let tcargs = Prelude.map extractType ctargs
-  if Prelude.length targs /= Prelude.length tcargs
-  then throwError (loc, CallArity (Prelude.length targs) (Prelude.length tcargs))
-  else checkLists loc targs tcargs -- unifies
+  if Prelude.length targs < Prelude.length tcargs
+    then throwError (loc, CallArity (Prelude.length targs) (Prelude.length tcargs))
+    else checkLists loc targs tcargs -- unifies
+  let htargs = Prelude.drop (Prelude.length tcargs) targs
   let te = extractType exprt
-  let e = Expr.App (Just te, loc) ft ctargs
+  let tapp = if Prelude.null htargs
+             then te
+             else Type.Fun htargs te
+  let e = Expr.App (Just tapp, loc) ft ctargs
   case t of
     Nothing -> pure e
     Just t -> do
@@ -153,10 +161,13 @@ tcExpr (Expr.App (t, loc) f cargs) = do
   ft <- tcExpr f
   tr <- case extractType ft of
     Type.Fun targs tr -> do
-      if Prelude.length targs /= Prelude.length ctargs
+      if Prelude.length targs < Prelude.length ctargs
         then throwError (loc, FunArity (Prelude.length targs) (Prelude.length ctargs))
         else checkLists loc targs $ Prelude.map extractType ctargs
-      pure tr
+      let htargs = Prelude.drop (Prelude.length ctargs) targs
+      if Prelude.null htargs
+        then pure tr
+        else pure $ Type.Fun htargs tr
     Type.Variable i -> do
       tr <- Type.Variable <$> newVar
       addEq (Type.Variable i) $ flip Type.Fun tr $ Prelude.map extractType ctargs
@@ -185,7 +196,7 @@ tcExpr (Expr.Abs (t, loc) fargs expr) = do
     Nothing -> pure et
     Just (Type.Fun targs1 tr1) -> do
       if Prelude.length targs /= Prelude.length targs1
-        then throwError (loc, FunArity (Prelude.length targs) (Prelude.length targs1))
+        then throwError (loc, FunArity (Prelude.length targs1) (Prelude.length targs))
         else do
         addEq tr tr1
         checkLists loc targs targs1 -- unifies
@@ -195,11 +206,13 @@ tcExpr (Expr.Abs (t, loc) fargs expr) = do
       unify loc
       pure et
     Just t -> throwError (loc, HeteroPrim t te)
--- TODO: handle currying
 tcExpr (Expr.Const (t, loc) i args) = do
   argst <- mapM tcExpr args
   Typechecker { scs, adts } <- get
   let k = scs !! i
+  let ktargs = targs k
+  when (Prelude.length argst /= Prelude.length ktargs)
+    $ throwError (loc, ConstArity (Prelude.length ktargs) (Prelude.length argst))
   let adt = adts !! parent k
   let targs = Prelude.drop (nVar adt) . Prelude.map extractType $ argst
   let tk = Type.Data (parent k) targs
@@ -207,7 +220,7 @@ tcExpr (Expr.Const (t, loc) i args) = do
   case t of
     Nothing -> pure kt
     Just (Type.Data ti targs1) -> if parent k /= ti
-                                  then throwError (loc, WrongADT (parent k) ti)
+                                  then throwError (loc, WrongADT ti (parent k))
                                   else do
       checkLists loc targs targs1 -- unifies
       pure kt
@@ -333,7 +346,7 @@ tcPattern (Pattern.Tuple (t, loc) el) = do
       pure $ Pattern.Tuple (t, loc) ela
     Just (Type.Tuple targs1) -> do
       if Prelude.length targs /= Prelude.length targs1
-        then throwError (loc, TupleArity (Prelude.length targs) (Prelude.length targs1))
+        then throwError (loc, TupleArity (Prelude.length targs1) (Prelude.length targs))
         else checkLists loc targs targs1
       pure $ Pattern.Tuple (Just $ Type.Tuple targs, loc) ela
     Just t -> throwError (loc, HeteroPrim t $ Type.Tuple targs)
@@ -343,6 +356,9 @@ tcPattern (Pattern.Const (t, loc) i args) = do
   argst <- mapM tcPattern args
   Typechecker { scs, adts } <- get
   let k = scs !! i
+  let ktargs = targs k
+  when (Prelude.length argst /= Prelude.length ktargs)
+    $ throwError (loc, ConstArity (Prelude.length ktargs) (Prelude.length argst))
   let adt = adts !! parent k
   let targs = Prelude.drop (nVar adt) . Prelude.map extractTypeP $ argst
   let tk = Type.Data (parent k) targs
@@ -350,7 +366,7 @@ tcPattern (Pattern.Const (t, loc) i args) = do
   case t of
     Nothing -> pure kt
     Just (Type.Data ti targs1) -> if parent k /= ti
-                                  then throwError (loc, WrongADT (parent k) ti)
+                                  then throwError (loc, WrongADT ti (parent k))
                                   else do
       checkLists loc targs targs1 -- unifies
       pure kt
