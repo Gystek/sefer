@@ -1,8 +1,14 @@
-module Utils ( allThree, pairs, fromJust ) where
+module Utils ( allThree, pairs, pairs2, fromJust ) where
 
 allThree :: (a -> b) -> (a, a, a) -> (b, b, b)
 allThree f (x, y, z) = (f x, f y, f z)
 
+pairs2 :: [a] -> [a] -> [(a, a)]
+pairs2 [] _ = []
+pairs2 (x:xs) ys = genPairs x ys ++ pairs2 xs ys
+  where genPairs :: a -> [a] -> [(a, a)]
+        genPairs _ [] = []
+        genPairs x (y:ys) = (x, y) : genPairs x ys
 
 pairs :: [a] -> [(a, a)]
 pairs [] = []

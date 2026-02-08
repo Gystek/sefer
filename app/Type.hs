@@ -1,4 +1,6 @@
-module Type ( Type(..) ) where
+module Type ( Type(..), LocAnnT ) where
+
+import Location
 
 data Type = Character
            | Integer
@@ -12,3 +14,5 @@ data Type = Character
            -- T Int Int :: Data 0 [Int Int]
            | Data Int [Type]
              deriving (Show, Eq)
+
+type LocAnnT = (Maybe Type, Location)

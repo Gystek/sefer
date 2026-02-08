@@ -1,10 +1,10 @@
-module Expr ( Expr(..), Branch(..), LocExprT ) where
+module Expr ( Expr(..), Branch(..), LocExprT, LocBranchT ) where
 
 import Data.Text
 import Literal ( Literal )
 import Location
 import Pattern
-import Type ( Type )
+import Type
 
 data Expr a = Literal { ann :: a, lit :: Literal }
             | Tuple { ann :: a, els :: [Expr a] }
@@ -17,9 +17,8 @@ data Expr a = Literal { ann :: a, lit :: Literal }
             | Cond { ann :: a, ei :: Expr a, et :: Expr a, ee :: Expr a }
             | Match { ann :: a, e :: Expr a, branches :: [Branch a] }
 
-data Branch a = Branch { pat :: Pattern a
-                       , guard :: Maybe (Expr a)
-                       , body :: Expr a
-                       }
+data Branch a = Branch a (Pattern a) (Maybe (Expr a)) (Expr a)
 
-type LocExprT = Expr (Maybe Type, Location)
+type LocBranchT = Branch LocAnnT
+
+type LocExprT = Expr LocAnnT

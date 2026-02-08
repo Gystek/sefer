@@ -77,12 +77,15 @@ executable sefer
     -- LANGUAGE extensions used by modules in this package.
     -- other-extensions:
 
+    ghc-options: -Wno-name-shadowing
+
     -- Other library packages from which modules are imported.
     build-depends:    base ^>=4.18.3.0
                     , text ^>=2.0.2
                     , hashmap ^>=1.3.3
                     , mtl ^>=2.3.2
                     , extra ^>=1.8.1
+
 
     -- Directories containing source files.
     hs-source-dirs:   app
