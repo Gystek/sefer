@@ -1,0 +1,168 @@
+\chapter{Formal specification}
+
+\begin{multicols*}{2}
+  \section{Type system}
+
+  Literals are of the type of the object they represent. Bools can
+  be of two values, as follows:
+
+  \[
+  \infer{\texttt{true}: \texttt{Bool}}{}\qquad
+  \infer{\texttt{false}: \texttt{Bool}}{}
+\end{equation*}
+
+Inference rules for compound constructs are as follows:
+
+\begin{equation*}
+  \infer[\textrm{tuple}] {\Gamma \vdash (e_1, \ldots, e_n) : (\tau_1
+    \times \ldots \times \tau_n)} {\Gamma \vdash e_1 : \tau_1 & \ldots
+    & \Gamma \vdash e_n : \tau_n}
+\end{equation*}
+
+\begin{equation*}
+  \infer[\textrm{variable}] {\Gamma \vdash x: \tau} {x: \tau \in
+    \Gamma}
+\end{equation*}
+
+\begin{equation*}
+  \infer[\textrm{abstraction}]{\Gamma \vdash \texttt{fun } x: \sigma
+    \texttt{ = } e : \sigma \rightarrow \tau}{\Gamma, x : \sigma
+    \vdash e : \tau}
+\end{equation*}
+
+\begin{equation*}
+  \infer[\textrm{polymorphic abstraction}] {\Gamma \vdash \texttt{fun
+    } x: \alpha \texttt{ = } e : \forall \alpha.\alpha \rightarrow
+    \tau} {\Gamma, \alpha \textrm{ type}, x: \alpha \vdash e : \tau}
+\end{equation*}
+
+\begin{equation*}
+  \infer[\textrm{application}] {\Gamma \vdash f\;a : \tau} {\Gamma
+    \vdash a : \sigma & \Gamma \vdash f: \sigma \rightarrow \tau}
+\end{equation*}
+
+\begin{equation*}
+  \infer[\textrm{polymorphic application}] {\Gamma \vdash f\;a :
+    \tau[\sigma/\alpha]} {\Gamma \vdash a : \sigma & \Gamma \vdash f :
+    \forall \alpha.\alpha \rightarrow \tau}
+\end{equation*}
+
+\begin{equation*}
+  \infer[\textrm{ADT construction}] {\Gamma \vdash
+    k\;a_1 \ldots a_m\;b_1 \ldots b_n : \upsilon[\tau_1/\alpha_1,
+      \ldots, \tau_n/\alpha_n]} {\begin{array}{c} \Gamma \vdash a_1 :
+      \sigma_1, \ldots, a_m : \sigma_m \qquad \Gamma \vdash b_1 :
+      \tau_1, \ldots, b_n: \tau_n \\ \Gamma \vdash k : \underset{j}{\forall}
+      \alpha_j.(\underset{i}{\rightarrow}\sigma_i)
+      \rightarrow (\underset{j}{\rightarrow} \alpha_j) \rightarrow \upsilon
+    \end{array}
+  }
+\end{equation*}
+
+\begin{equation*}
+  \infer[\textrm{\texttt{let-in} construction}] {\Gamma \vdash
+    \texttt{let } x \texttt{ = } e_1 \texttt{ in } e_2 : \tau} {\Gamma
+    \vdash e_1: \sigma & \Gamma, x: \sigma \vdash e_2: \tau}
+\end{equation*}
+
+\begin{equation*}
+  \infer[\textrm{conditional}] {\Gamma \vdash \texttt{if } e_i
+    \texttt{ then } e_t \texttt{ else } e_e : \tau} {\Gamma \vdash
+    e_i: \texttt{Bool} & \Gamma \vdash e_t: \tau, e_e: \tau}
+\end{equation*}
+
+Patterns can be nested and although the inference rules written
+thereafter depict only top-level patterns, they apply in recursive
+contexts. For this purpose, we define the operator $p \sim \tau$ to be
+read as ``$p$ matches with a value of type $\tau$'' and the notation
+$\chi(p)$ as the set of bindings defined by $p$.
+
+\begin{equation*}
+  \infer[\textrm{pattern matching}]
+        {\Gamma \vdash \texttt{match } e \texttt { \{ } \ldots, p_i \texttt{
+            if } c_i \texttt{ -> } e_i, \ldots \texttt{ \} } : \tau}
+        {\begin{array}{c}
+            \Gamma, \chi(p_1) \vdash c_1: \texttt{Bool}\quad
+            \ldots\quad
+            \Gamma, \chi(p_n) \vdash c_n: \texttt{Bool} \\
+            \Gamma, \chi(p_1) \vdash e_1: \tau\quad
+            \ldots\quad
+            \Gamma, \chi(p_n) \vdash e_n: \tau \\
+            \Gamma \vdash p_1 \sim e, \ldots, p_n \sim e
+          \end{array}
+        }
+\end{equation*}
+
+
+Let $\iota \in \{ \texttt{Char}, \texttt{Bool}, \texttt{Int},
+\texttt{Float} \}$.
+\begin{equation*}
+  \infer[\textrm{literal branch}]
+        {\Gamma \vdash \texttt{match } e \texttt{ \{ } \ldots, p
+          \texttt{ -> } e', \ldots \texttt{ \} } : \tau}
+        {\Gamma \vdash e: \iota
+          & \Gamma \vdash p: \iota
+          & \Gamma \vdash e': \tau}
+\end{equation*}
+
+\begin{equation*}
+  \infer[\textrm{tuple branch}]
+        {\Gamma \vdash \texttt{match } e \texttt{ \{ } \ldots, (p_1,
+          \ldots, p_n) \texttt{ -> } e', \ldots \texttt{ \} } : \tau}
+        {\begin{array}{c}
+            \Gamma \vdash e: (\tau_1 \times \ldots \times \tau_n) \\
+            \Gamma \vdash p_1 \sim \tau_1, \ldots, p_n \sim \tau_n \quad
+            \Gamma, \bigcup \chi(p_i) \vdash e': \tau
+          \end{array}
+        }
+\end{equation*}
+
+\begin{equation*}
+  \infer[\textrm{binding}]
+        {\Gamma \vdash \texttt{match } e \texttt{ \{ } \ldots, x
+          \texttt{ -> } e', \ldots \texttt{ \} } : \tau}
+        {\Gamma \vdash e: \sigma
+          & \Gamma, x: \sigma \vdash e': \tau}
+\end{equation*}
+
+\begin{equation*}
+  \infer[\textrm{constructor}]
+        {\Gamma \vdash \texttt{match } e \texttt{ \{ } \ldots,
+          k\;p_1 \ldots p_n \texttt{ -> } e', \ldots \texttt{ \} }: \tau}
+        {\begin{array}{c}
+            \Gamma \vdash e: \upsilon\quad
+            \Gamma, \bigcup \chi(p_i) \vdash e': \tau \\
+            \Gamma \vdash k: \sigma_1 \rightarrow \ldots \rightarrow
+            \sigma_n \rightarrow \upsilon \\
+            \Gamma \vdash p_1 \sim \sigma_1, \ldots, p_n \sim \sigma_n
+          \end{array}
+          }
+\end{equation*}
+
+\begin{equation*}
+  \infer[\textrm{sum patterns}]
+        {\Gamma \vdash \texttt{match } e \texttt{ \{ } \ldots,
+        p \texttt{ | } q \texttt{ -> } e', \ldots \texttt{ \} }: \tau}
+        {\begin{array}{c}
+            \Gamma \vdash e : \sigma \\
+            \Gamma \vdash p \sim \sigma\quad
+            \Gamma \vdash q \sim \sigma \\
+            \Gamma, \chi(p) \vdash e' : \tau\quad
+            \Gamma, \chi(q) \vdash e' : \tau
+          \end{array}
+        }
+\end{equation*}
+
+\begin{equation*}
+  \infer[\textrm{\texttt{@}-patterns}]
+        {\Gamma \vdash \texttt{match } e \texttt{ \{ } \ldots,
+        x\texttt{@}p \texttt{ -> } e', \ldots \texttt{ \} }: \tau}
+        {\begin{array}{c}
+            \Gamma \vdash e : \sigma\quad
+            \Gamma \vdash p \sim \sigma \\
+            x:\sigma \not\in \chi(p)\quad
+            \Gamma, x:\sigma, \chi(p) \vdash e' : \tau
+          \end{array}
+        }
+\end{equation*}
+\end{multicols*}

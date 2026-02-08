@@ -247,6 +247,11 @@ tcExpr (Expr.Let (t, loc) x y z) = do
       addEq t tz
       unify loc
       pure $ Expr.Let (Just t, loc) (xt, (Just tx, xl)) yt zt
+-- TODO: handle mixed tvars and definite types
+--
+-- e.g. data Foo a = Bar Int a Char
+-- breaks with the current implementation:
+-- Bar 5 6 'a' : Foo Int would be unified against Foo Char
 tcExpr (Expr.Cond (t, loc) ei et ee) = do
   eit <- tcExpr ei
   ett <- tcExpr et
