@@ -1,168 +1,207 @@
 \chapter{Formal specification}
 
-\begin{multicols*}{2}
   \section{Type system}
 
-  Literals are of the type of the object they represent. Bools can
-  be of two values, as follows:
+ In this section, $\Rightarrow$ indicates the \texttt{synth}
+ (inference) part of bidirectional typechecking while $\Leftarrow$
+ indicates the \texttt{check} (verification) part. Since it trivially
+ holds that $(x \underset{\textsc{tc}}{\Rightarrow} \tau) \Longrightarrow
+   (x \underset{\textsc{tc}}{\Leftarrow} \tau)$, $\Leftrightarrow$ is simply written
+   as $\Rightarrow$.
+  
+ Let $\iota \in \{ \texttt{Char}, \texttt{Bool}, \texttt{Int},
+ \texttt{Float} \}$ and $c_\iota$ be a value of type $\iota$.
+ \begin{equation*}
+   \infer[\textsc{Lit}]{\Gamma \vdash c_\iota \Rightarrow \iota}{}\quad
+   \infer[\textsc{Var}]
+         {\Gamma \vdash x \Rightarrow \tau}
+         {x: \tau \in \Gamma}
+ \end{equation*}
 
-  \[
-  \infer{\texttt{true}: \texttt{Bool}}{}\qquad
-  \infer{\texttt{false}: \texttt{Bool}}{}
-\end{equation*}
+ \begin{equation*}
+   \infer[\textsc{Tup}]
+         {\Gamma \vdash (e1, \ldots, e_n) \Rightarrow (\tau_1
+           \times \ldots \times tau_n)}
+         {\Gamma \vdash e_1 \Leftarrow \tau_1
+           & \ldots
+           & \Gamma \vdash e_n \Leftarrow \tau_n}
+ \end{equation*}
 
-Inference rules for compound constructs are as follows:
+ \begin{equation*}
+   \infer[\textsc{Abs}]
+         {\Gamma \vdash \texttt{fun } x: \sigma \texttt{ = } e
+           \Rightarrow \sigma \rightarrow \tau}
+         {\Gamma, x: \sigma \vdash e \Leftarrow \tau}
+         \quad
+         \infer[\textsc{App}]
+         {\Gamma \vdash f\;a \Rightarrow \tau}
+         {\Gamma \vdash a \Leftarrow \sigma
+         & \Gamma \vdash f \Leftarrow \sigma \rightarrow \tau}
+ \end{equation*}
 
-\begin{equation*}
-  \infer[\textrm{tuple}] {\Gamma \vdash (e_1, \ldots, e_n) : (\tau_1
-    \times \ldots \times \tau_n)} {\Gamma \vdash e_1 : \tau_1 & \ldots
-    & \Gamma \vdash e_n : \tau_n}
-\end{equation*}
+ \begin{equation*}
+   \infer[\textsc{PolyAbs}]
+         {\Gamma \vdash \texttt{fun } x: \sigma \texttt{ = } e
+         \Rightarrow \forall \alpha.\sigma \rightarrow \tau }
+         {\begin{array}{c}
+             \Gamma, \alpha \textrm{ type } \vdash \sigma \textrm{ type}\quad
+             \Gamma, \alpha \textrm{ type } \vdash \tau \textrm{ type}
+             \\
+             \Gamma, \alpha \textrm{ type}, x : \sigma \vdash e
+             \Leftarrow \tau
+           \end{array}
+         }
+         \quad
+         \infer[\textsc{PolyApp}]
+         {\Gamma \vdash f\;a \Rightarrow \tau[\sigma/\alpha]}
+         {\Gamma \vdash a \Leftarrow \phi(\sigma)
+           &\Gamma \vdash f \Leftarrow \forall \alpha.\phi(\alpha) \rightarrow
+           \tau}
+ \end{equation*}
 
-\begin{equation*}
-  \infer[\textrm{variable}] {\Gamma \vdash x: \tau} {x: \tau \in
-    \Gamma}
-\end{equation*}
+ \begin{equation*}
+   \infer[\textsc{ADTConst}]
+         {\Gamma \vdash k\;a_1 \ldots a_n \Rightarrow \tau\;\tau_1\;\ldots\;\tau_m}
+         {\begin{array}{c}
+             \Psi \vdash k \Leftarrow \forall \alpha_1, \ldots,
+             \alpha_m.\sigma_1 \rightarrow \ldots \rightarrow
+             \sigma_n \rightarrow \tau\;\alpha_1\;\ldots\;\alpha_m \in
+             \mathcal{K}(\tau) \\
+             \Gamma \vdash a_1 \Leftarrow
+             \sigma_1[\tau_1/\alpha_1, \ldots, \tau_m/\alpha_m]\quad
+             \ldots\quad
+             \Gamma \vdash a_n \Leftarrow
+             \sigma_n[\tau_1/\alpha_1, \ldots, \tau_m/\alpha_m] \\
+           \end{array}
+         }
+ \end{equation*}
 
-\begin{equation*}
-  \infer[\textrm{abstraction}]{\Gamma \vdash \texttt{fun } x: \sigma
-    \texttt{ = } e : \sigma \rightarrow \tau}{\Gamma, x : \sigma
-    \vdash e : \tau}
-\end{equation*}
+ \begin{equation*}
+   \infer[\textsc{Let}]
+         {\Gamma \vdash \texttt{let } x: \sigma \texttt{ = } y \texttt{ in } z
+         \Rightarrow \tau}
+         {\Gamma \vdash y \Leftarrow \sigma
+         & \Gamma, x: \sigma \vdash z \Leftarrow \tau}
+ \end{equation*}
 
-\begin{equation*}
-  \infer[\textrm{polymorphic abstraction}] {\Gamma \vdash \texttt{fun
-    } x: \alpha \texttt{ = } e : \forall \alpha.\alpha \rightarrow
-    \tau} {\Gamma, \alpha \textrm{ type}, x: \alpha \vdash e : \tau}
-\end{equation*}
+ \begin{equation*}
+   \infer[\textsc{If}]
+         {\Gamma \vdash \texttt{if } e_i \texttt{ then } e_t \texttt{
+             else } e_e \Rightarrow \tau}
+         {\Gamma \vdash e_i \Leftarrow \texttt{Bool}
+           & \Gamma \vdash e_t \Leftarrow \tau
+           & \Gamma \vdash e_e \Leftarrow \tau}
+ \end{equation*}
 
-\begin{equation*}
-  \infer[\textrm{application}] {\Gamma \vdash f\;a : \tau} {\Gamma
-    \vdash a : \sigma & \Gamma \vdash f: \sigma \rightarrow \tau}
-\end{equation*}
+ \begin{equation*}
+   \infer[\textsc{P\_}]
+         {\Gamma \vdash \texttt{\_} \dashv \emptyset}
+         {}
+         \quad
+         \infer[\textsc{Plit}]
+         {\Gamma \vdash c_\iota \Rightarrow \iota \dashv \emptyset}
+         {}
+         \quad
+         \infer[\textsc{Pbind}]
+         {\Gamma \vdash x \Rightarrow \tau \dashv x \Leftarrow \tau}
+         {}
+ \end{equation*}
 
-\begin{equation*}
-  \infer[\textrm{polymorphic application}] {\Gamma \vdash f\;a :
-    \tau[\sigma/\alpha]} {\Gamma \vdash a : \sigma & \Gamma \vdash f :
-    \forall \alpha.\alpha \rightarrow \tau}
-\end{equation*}
+ \begin{equation*}
+   \infer[\textsc{Pconst}]
+            {\Gamma \vdash k\;p_1 \ldots p_n \Rightarrow
+              \tau\;\tau_1\;\ldots\;\tau_m \dashv \Delta_1, \ldots,
+              \Delta_n}
+         {\begin{array}{c}
+             \Psi \vdash k \Leftarrow \forall \alpha_1, \ldots,
+             \alpha_m.\sigma_1 \rightarrow \ldots \rightarrow
+             \sigma_n \rightarrow \tau\;\alpha_1\;\ldots\;\alpha_m \in
+             \mathcal{K}(\tau) \\
+             \Gamma \vdash p_1 \Leftarrow
+             \sigma_1[\tau_1/\alpha_1, \ldots, \tau_m/\alpha_m] \dashv
+             \Delta_1 \quad
+             \ldots\quad
+             \Gamma \vdash a_n \Leftarrow
+             \sigma_n[\tau_1/\alpha_1, \ldots, \tau_m/\alpha_m] \dashv
+             \Delta_n \\
+           \end{array}
+         }
+ \end{equation*}
 
-\begin{equation*}
-  \infer[\textrm{ADT construction}] {\Gamma \vdash
-    k\;a_1 \ldots a_m\;b_1 \ldots b_n : \upsilon[\tau_1/\alpha_1,
-      \ldots, \tau_n/\alpha_n]} {\begin{array}{c} \Gamma \vdash a_1 :
-      \sigma_1, \ldots, a_m : \sigma_m \qquad \Gamma \vdash b_1 :
-      \tau_1, \ldots, b_n: \tau_n \\ \Gamma \vdash k : \underset{j}{\forall}
-      \alpha_j.(\underset{i}{\rightarrow}\sigma_i)
-      \rightarrow (\underset{j}{\rightarrow} \alpha_j) \rightarrow \upsilon
-    \end{array}
-  }
-\end{equation*}
+ \begin{equation*}
+   \infer[\textsc{Ptup}]
+         {\Gamma \vdash (p_1, \ldots, p_n) \Rightarrow (\sigma_1
+           \times \ldots \times \sigma_n) \dashv \Delta_1, \ldots,
+           \Delta_n}
+         {\Gamma \vdash p_1 \Leftarrow \sigma_1 \dashv \Delta_1
+           & \ldots
+           & \Gamma \vdash p_n \Leftarrow \sigma_n \dashv \Delta_n}
+ \end{equation*}
 
-\begin{equation*}
-  \infer[\textrm{\texttt{let-in} construction}] {\Gamma \vdash
-    \texttt{let } x \texttt{ = } e_1 \texttt{ in } e_2 : \tau} {\Gamma
-    \vdash e_1: \sigma & \Gamma, x: \sigma \vdash e_2: \tau}
-\end{equation*}
+ \begin{equation*}
+   \infer[\textsc{Por}]
+         {\Gamma \vdash p \texttt{ | } q \Rightarrow \tau \dashv
+           \Delta_p \cap \Delta_q}
+         {\Gamma \vdash p \Leftarrow \tau \dashv \Delta_p
+           & \Gamma \vdash q \Leftarrow \tau \dashv \Delta_q}
+ \end{equation*}
 
-\begin{equation*}
-  \infer[\textrm{conditional}] {\Gamma \vdash \texttt{if } e_i
-    \texttt{ then } e_t \texttt{ else } e_e : \tau} {\Gamma \vdash
-    e_i: \texttt{Bool} & \Gamma \vdash e_t: \tau, e_e: \tau}
-\end{equation*}
+ \begin{equation*}
+   \infer[\textsc{Pat}]
+         {\Gamma \vdash x\texttt{@}p \Rightarrow \tau \dashv \Delta, x
+         \Leftarrow \tau}
+         {\Gamma \vdash p \Leftarrow \tau \dashv \Delta}
+ \end{equation*}
 
-Patterns can be nested and although the inference rules written
-thereafter depict only top-level patterns, they apply in recursive
-contexts. For this purpose, we define the operator $p \sim \tau$ to be
-read as ``$p$ matches with a value of type $\tau$'' and the notation
-$\chi(p)$ as the set of bindings defined by $p$.
+ \begin{equation*}
+   \infer[\textsc{Match}]
+         {\Gamma \vdash \texttt{match } e \texttt{ \{ } p_1 \texttt{
+             if } c_1 \texttt{ -> } e_1, \ldots, p_n \texttt{ if } c_n
+         \texttt{ -> } e_n \texttt{ \} } \Rightarrow \tau}
+         {\begin{array}{c}
+             \Gamma \vdash e \Leftarrow \sigma \\
+             \Gamma \vdash p_1 \Leftarrow \sigma \dashv \Delta_1, e
+             \Leftarrow \sigma\quad
+             \ldots\quad
+             \Gamma \vdash p_n \Leftarrow \sigma \dashv \Delta_n, e
+             \Leftarrow \sigma \\
+             \Gamma, \Delta_1 \vdash e_1 \Leftarrow \tau\quad
+             \ldots\quad
+             \Gamma, \Delta_n \vdash e_n \Leftarrow \tau\quad \\
+             \Gamma, \Delta_1 \vdash c_1 \Leftarrow \texttt{Bool}\quad
+             \ldots\quad
+             \Gamma, \Delta_n \vdash c_n \Leftarrow \texttt{Bool} \\
+           \end{array}
+         }
+ \end{equation*}
 
-\begin{equation*}
-  \infer[\textrm{pattern matching}]
-        {\Gamma \vdash \texttt{match } e \texttt { \{ } \ldots, p_i \texttt{
-            if } c_i \texttt{ -> } e_i, \ldots \texttt{ \} } : \tau}
-        {\begin{array}{c}
-            \Gamma, \chi(p_1) \vdash c_1: \texttt{Bool}\quad
-            \ldots\quad
-            \Gamma, \chi(p_n) \vdash c_n: \texttt{Bool} \\
-            \Gamma, \chi(p_1) \vdash e_1: \tau\quad
-            \ldots\quad
-            \Gamma, \chi(p_n) \vdash e_n: \tau \\
-            \Gamma \vdash p_1 \sim e, \ldots, p_n \sim e
-          \end{array}
-        }
-\end{equation*}
+ \begin{multicols*}{2}
+   In inference rules, $\Gamma$ denotes the general context whereas
+   $\Psi$ specifically denotes the context defined by algebraic data
+   types; $\Psi \subset \Gamma$.
 
+   $\forall$- (polymorphic) types may only be constructed from arrow
+   (function) types as in rule \textsc{PolyAbs}. The $\phi$ function
+   in rule \textsc{PolyApp} can be understood as a purely syntactic
+   rule for constructing types. It is used in this rule to allow for
+   functions that do not directly take $\alpha$ as a parameter. For
+   instance, the function \texttt{mapMaybe} is of type $\forall
+   \alpha.\phi(\alpha) \rightarrow \forall \beta.(\alpha \rightarrow
+   \beta) \rightarrow \phi(\beta)$, where $\phi(x) = \texttt{Maybe }
+   x$. As can be seen in the previous example, whichever argument of the
+   arrow type quantified using $\forall$ may itself contain other
+   $\forall$ quantifiers.
 
-Let $\iota \in \{ \texttt{Char}, \texttt{Bool}, \texttt{Int},
-\texttt{Float} \}$.
-\begin{equation*}
-  \infer[\textrm{literal branch}]
-        {\Gamma \vdash \texttt{match } e \texttt{ \{ } \ldots, p
-          \texttt{ -> } e', \ldots \texttt{ \} } : \tau}
-        {\Gamma \vdash e: \iota
-          & \Gamma \vdash p: \iota
-          & \Gamma \vdash e': \tau}
-\end{equation*}
+   Data constructors are virtually functions, for the sake of
+   consistency with the rules enunciated in the previous
+   paragraph. The only difference is that data constructors are not
+   curried. There are thus no nullary constructors, instead they are
+   emulated as holding \texttt{()}. Thus, \texttt{Maybe} is defined as
+   \texttt{data Maybe a = Just a | Nothing ()}.
 
-\begin{equation*}
-  \infer[\textrm{tuple branch}]
-        {\Gamma \vdash \texttt{match } e \texttt{ \{ } \ldots, (p_1,
-          \ldots, p_n) \texttt{ -> } e', \ldots \texttt{ \} } : \tau}
-        {\begin{array}{c}
-            \Gamma \vdash e: (\tau_1 \times \ldots \times \tau_n) \\
-            \Gamma \vdash p_1 \sim \tau_1, \ldots, p_n \sim \tau_n \quad
-            \Gamma, \bigcup \chi(p_i) \vdash e': \tau
-          \end{array}
-        }
-\end{equation*}
-
-\begin{equation*}
-  \infer[\textrm{binding}]
-        {\Gamma \vdash \texttt{match } e \texttt{ \{ } \ldots, x
-          \texttt{ -> } e', \ldots \texttt{ \} } : \tau}
-        {\Gamma \vdash e: \sigma
-          & \Gamma, x: \sigma \vdash e': \tau}
-\end{equation*}
-
-\begin{equation*}
-  \infer[\textrm{constructor}]
-        {\Gamma \vdash \texttt{match } e \texttt{ \{ } \ldots,
-          k\;p_1 \ldots p_n \texttt{ -> } e', \ldots \texttt{ \} }: \tau}
-        {\begin{array}{c}
-            \Gamma \vdash e: \upsilon\quad
-            \Gamma, \bigcup \chi(p_i) \vdash e': \tau \\
-            \Gamma \vdash k: \sigma_1 \rightarrow \ldots \rightarrow
-            \sigma_n \rightarrow \upsilon \\
-            \Gamma \vdash p_1 \sim \sigma_1, \ldots, p_n \sim \sigma_n
-          \end{array}
-          }
-\end{equation*}
-
-\begin{equation*}
-  \infer[\textrm{sum patterns}]
-        {\Gamma \vdash \texttt{match } e \texttt{ \{ } \ldots,
-        p \texttt{ | } q \texttt{ -> } e', \ldots \texttt{ \} }: \tau}
-        {\begin{array}{c}
-            \Gamma \vdash e : \sigma \\
-            \Gamma \vdash p \sim \sigma\quad
-            \Gamma \vdash q \sim \sigma \\
-            \Gamma, \chi(p) \vdash e' : \tau\quad
-            \Gamma, \chi(q) \vdash e' : \tau
-          \end{array}
-        }
-\end{equation*}
-
-\begin{equation*}
-  \infer[\textrm{\texttt{@}-patterns}]
-        {\Gamma \vdash \texttt{match } e \texttt{ \{ } \ldots,
-        x\texttt{@}p \texttt{ -> } e', \ldots \texttt{ \} }: \tau}
-        {\begin{array}{c}
-            \Gamma \vdash e : \sigma\quad
-            \Gamma \vdash p \sim \sigma \\
-            x:\sigma \not\in \chi(p)\quad
-            \Gamma, x:\sigma, \chi(p) \vdash e' : \tau
-          \end{array}
-        }
-\end{equation*}
-\end{multicols*}
+   In pattern rules, a declaration such as $\Gamma \vdash x \Leftarrow \tau
+   \dashv \Delta$ means that the pattern $x$ can be matched against
+   type $\tau$ and that it provides context $\Delta$ (which is later
+   used both by the guard $c_i$ and the expression $e_i$ in the
+   \textsc{Match} rule).
+ \end{multicols*}
