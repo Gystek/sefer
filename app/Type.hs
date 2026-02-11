@@ -1,5 +1,6 @@
 module Type ( Type(..), LocAnnT ) where
 
+import Data.Text
 import Location
 
 data Type = Character
@@ -7,7 +8,7 @@ data Type = Character
            | Floating
            | Boolean
            | Tuple [Type]
-           -- TODO: add rigid tvars
+           | RVar Text
            | Variable Int
            | Fun [Type] Type
            -- data T a b = ...

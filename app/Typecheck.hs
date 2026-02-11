@@ -31,6 +31,7 @@ data TCError = HeteroPrim Type Type
              | CallArity Int Int
              | ConstArity Int Int
              | WrongADT Int Int
+             | UnifyFail Type Type
              deriving (Show)
 
 type Result = Either (Located TCError)
@@ -107,6 +108,33 @@ checkLists loc [] [] = unify loc
 -- f : a -> b -> c, x : a => f x : b -> c
 -- checkLists _ [a b] [a] -> checkLists _ [b] []
 checkLists loc _ [] = unify loc
+
+unifyADTArgs :: Location -> [Type] -> [Type] -> Map Text Type -> StateT Typechecker Result (Map Text Type)
+unifyADTArgs _ [] [] m = pure m
+unifyADTArgs loc [] ts _ = throwError (loc, ConstArity 0 $ Prelude.length ts)
+unifyADTArgs loc ks [] _ = throwError (loc, flip ConstArity 0 $ Prelude.length ks)
+unifyADTArgs loc (Type.Character:ks) (Type.Character:ts) m = unifyADTArgs loc ks ts m
+unifyADTArgs loc (Type.Integer:ks) (Type.Integer:ts) m = unifyADTArgs loc ks ts m
+unifyADTArgs loc (Type.Floating:ks) (Type.Floating:ts) m = unifyADTArgs loc ks ts m
+unifyADTArgs loc (Type.Boolean:ks) (Type.Boolean:ts) m = unifyADTArgs loc ks ts m
+unifyADTArgs loc ((Type.Tuple k):ks) ((Type.Tuple t):ts) m = unifyADTArgs loc k t m >>= unifyADTArgs loc ks ts
+unifyADTArgs loc ((Type.RVar x):ks) (t:ts) m = (if Data.HashMap.findWithDefault t x m == t
+                                               then pure $ insert x t m
+                                               else throwError (loc, flip UnifyFail t $ m ! x))
+                                              >>= unifyADTArgs loc ks ts
+unifyADTArgs _ ((Type.Variable _):_) _ _ = error "shouldn't see type variables on the left hand side"
+unifyADTArgs loc (k:ks) (t@(Type.Variable i):ts) m = do
+  addEq k t
+  unify loc
+  unifyADTArgs loc ks ts m
+unifyADTArgs loc ((Type.Fun xs e):ks) ((Type.Fun xs' e'):ts) m = unifyADTArgs loc [e] [e'] m
+                                                                 >>= unifyADTArgs loc xs xs'
+                                                                 >>= unifyADTArgs loc ks ts
+unifyADTArgs loc ((Type.Data i xs):ks) ((Type.Data j xs'):ts) m = if i == j
+                                                                  then unifyADTArgs loc xs xs' m
+                                                                       >>= unifyADTArgs loc ks ts
+                                                                  else throwError (loc, WrongADT i j)
+unifyADTArgs loc (k:_) (t:_) _ = throwError (loc, HeteroPrim k t)
 
 tcExpr :: LocExprT -> StateT Typechecker Result LocExprT
 tcExpr e@(Expr.Literal (t, loc) l) = let tt = getType l
@@ -211,10 +239,11 @@ tcExpr (Expr.Const (t, loc) i args) = do
   Typechecker { scs, adts } <- get
   let k = scs !! i
   let ktargs = targs k
-  when (Prelude.length argst /= Prelude.length ktargs)
-    $ throwError (loc, ConstArity (Prelude.length ktargs) (Prelude.length argst))
   let adt = adts !! parent k
-  let targs = Prelude.drop (nVar adt) . Prelude.map extractType $ argst
+  targsm <- unifyADTArgs loc ktargs (Prelude.map extractType argst) Data.HashMap.empty
+  targs <- mapM (\t -> case Data.HashMap.lookup t targsm of
+                         Nothing -> Type.Variable <$> newVar
+                         Just t -> pure t) $ vars adt
   let tk = Type.Data (parent k) targs
   let kt = Expr.Const (Just tk, loc) i argst
   case t of
@@ -247,11 +276,6 @@ tcExpr (Expr.Let (t, loc) x y z) = do
       addEq t tz
       unify loc
       pure $ Expr.Let (Just t, loc) (xt, (Just tx, xl)) yt zt
--- TODO: handle mixed tvars and definite types
---
--- e.g. data Foo a = Bar Int a Char
--- breaks with the current implementation:
--- Bar 5 6 'a' : Foo Int would be unified against Foo Char
 tcExpr (Expr.Cond (t, loc) ei et ee) = do
   eit <- tcExpr ei
   ett <- tcExpr et
@@ -362,10 +386,11 @@ tcPattern (Pattern.Const (t, loc) i args) = do
   Typechecker { scs, adts } <- get
   let k = scs !! i
   let ktargs = targs k
-  when (Prelude.length argst /= Prelude.length ktargs)
-    $ throwError (loc, ConstArity (Prelude.length ktargs) (Prelude.length argst))
   let adt = adts !! parent k
-  let targs = Prelude.drop (nVar adt) . Prelude.map extractTypeP $ argst
+  targsm <- unifyADTArgs loc ktargs (Prelude.map extractTypeP argst) Data.HashMap.empty
+  targs <- mapM (\t -> case Data.HashMap.lookup t targsm of
+                         Nothing -> Type.Variable <$> newVar
+                         Just t -> pure t) $ vars adt
   let tk = Type.Data (parent k) targs
   let kt = Pattern.Const (Just tk, loc) i argst
   case t of

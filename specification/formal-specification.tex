@@ -4,10 +4,10 @@
 
  In this section, $\Rightarrow$ indicates the \texttt{synth}
  (inference) part of bidirectional typechecking while $\Leftarrow$
- indicates the \texttt{check} (verification) part. Since it trivially
- holds that $(x \underset{\textsc{tc}}{\Rightarrow} \tau) \Longrightarrow
-   (x \underset{\textsc{tc}}{\Leftarrow} \tau)$, $\Leftrightarrow$ is simply written
-   as $\Rightarrow$.
+ indicates the \texttt{check} (verification) part. Since $(\Gamma
+ \vdash x \underset{\textsc{tc}}{\Rightarrow} \tau) \Longrightarrow
+ (\Gamma \vdash x \underset{\textsc{tc}}{\Leftarrow} \tau)$,
+ $\Leftrightarrow$ is simply written as $\Rightarrow$.
   
  Let $\iota \in \{ \texttt{Char}, \texttt{Bool}, \texttt{Int},
  \texttt{Float} \}$ and $c_\iota$ be a value of type $\iota$.
