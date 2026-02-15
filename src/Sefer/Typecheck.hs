@@ -109,7 +109,8 @@ unifyList loc ((lht, rht):xs) | lht == rht = unifyList loc xs
 unify :: Location -> StateT Typechecker Result ()
 unify loc = do
   tc@Typechecker { eqs, subst } <- get
-  (eqs, ss) <- unifyList loc eqs
+  let eqs' = substEqs eqs $ Data.HashMap.assocs subst
+  (eqs, ss) <- unifyList loc eqs'
   let subst' = fromList ss
   put tc { eqs, subst = Data.HashMap.union subst' subst }
 
@@ -216,8 +217,8 @@ tcExpr e@(Expr.Literal (t, loc) l) = let tt = Literal.getType l
                                      Just (Type.Variable i) -> do
                                        addEq (Type.Variable i) tt
                                        unify loc
-                                       applySubstsL e
-                                     Just t | t == tt -> applySubstsL e
+                                       pure e
+                                     Just t | t == tt -> pure e
                                             | otherwise -> throwError (loc, HeteroPrim t tt)
 tcExpr (Expr.Tuple (t, loc) el) = do
   ela <- mapM tcExpr el
@@ -227,12 +228,12 @@ tcExpr (Expr.Tuple (t, loc) el) = do
     Just (Type.Variable i) -> do
       addEq (Type.Variable i) (Type.Tuple targs)
       unify loc
-      applySubstsL $ Expr.Tuple (t, loc) ela
+      pure $ Expr.Tuple (t, loc) ela
     Just (Type.Tuple targs1) -> do
       if Prelude.length targs /= Prelude.length targs1
       then throwError (loc, TupleArity (Prelude.length targs1) (Prelude.length targs))
       else checkLists loc targs targs1
-      applySubstsL $ Expr.Tuple (Just $ Type.Tuple targs, loc) ela
+      pure $ Expr.Tuple (Just $ Type.Tuple targs, loc) ela
     Just t -> throwError (loc, HeteroPrim t $ Type.Tuple targs)
 tcExpr (Expr.App (t, loc) (Expr.Abs (tf, loc1) fargs expr) cargs) = do
   ctargs <- mapM tcExpr cargs
@@ -255,7 +256,7 @@ tcExpr (Expr.App (t, loc) (Expr.Abs (tf, loc1) fargs expr) cargs) = do
     Just t -> do
       addEq t (extractType exprt)
       unify loc
-      applySubstsL $ Expr.App (Just t, loc) ft ctargs
+      pure $ Expr.App (Just t, loc) ft ctargs
 tcExpr (Expr.App (t, loc) f cargs) = do
   ctargs <- mapM tcExpr cargs
   ft <- tcExpr f
@@ -278,7 +279,7 @@ tcExpr (Expr.App (t, loc) f cargs) = do
     Just t -> do
       addEq t tr
       unify loc
-      applySubstsL $ Expr.App (Just t, loc) ft ctargs
+      pure $ Expr.App (Just t, loc) ft ctargs
 tcExpr (Expr.Abs (t, loc) fargs expr) = do
   ftargs <- mapM tcBind fargs
   let targs = Prelude.map (fst . snd) ftargs
@@ -299,11 +300,11 @@ tcExpr (Expr.Abs (t, loc) fargs expr) = do
         else do
         addEq tr tr1
         checkLists loc targs targs1 -- unifies
-        applySubstsL $ Expr.Abs (t, loc) ttargs exprt
+        pure $ Expr.Abs (t, loc) ttargs exprt
     Just (Type.Variable i) -> do
       addEq (Type.Variable i) te
       unify loc
-      applySubstsL $ Expr.Abs (t, loc) ttargs exprt
+      pure $ Expr.Abs (t, loc) ttargs exprt
     Just t -> throwError (loc, HeteroPrim t te)
 tcExpr (Expr.Const (t, loc) i args) = do
   argst <- mapM tcExpr args
@@ -322,11 +323,11 @@ tcExpr (Expr.Const (t, loc) i args) = do
                                   then throwError (loc, WrongADT ti (parent k))
                                   else do
       checkLists loc targs targs1 -- unifies
-      applySubstsL $ Expr.Const (t, loc) i argst
+      pure $ Expr.Const (t, loc) i argst
     Just (Type.Variable j) -> do
       addEq (Type.Variable j) tk
       unify loc
-      applySubstsL $ Expr.Const (t, loc) i argst
+      pure $ Expr.Const (t, loc) i argst
     Just t -> throwError (loc, HeteroPrim t tk)
 tcExpr (Expr.Let (t, loc) x y z) = do
   (xt, (tx, xl)) <- tcBind x
@@ -345,7 +346,7 @@ tcExpr (Expr.Let (t, loc) x y z) = do
     Just t -> do
       addEq t tz
       unify loc
-      applySubstsL $ Expr.Let (Just t, loc) (xt, (Just tx, xl)) yt zt
+      pure $ Expr.Let (Just t, loc) (xt, (Just tx, xl)) yt zt
 tcExpr (Expr.Cond (t, loc) ei et ee) = do
   eit <- tcExpr ei
   ett <- tcExpr et
@@ -358,7 +359,7 @@ tcExpr (Expr.Cond (t, loc) ei et ee) = do
     Just t -> do
       addEq t (extractType ett)
       unify loc
-      applySubstsL $ Expr.Cond (Just t, loc) eit ett eet
+      pure $ Expr.Cond (Just t, loc) eit ett eet
 tcExpr e@(Expr.Var (t0, loc) x) = do
   Typechecker { bindings } <- get
   case Data.HashMap.lookup x bindings of
@@ -368,7 +369,7 @@ tcExpr e@(Expr.Var (t0, loc) x) = do
                  Just t0 -> do
                    addEq t0 t1
                    unify loc
-                   applySubstsL e
+                   pure e
 tcExpr (Expr.Match (t, loc) e bs) = do
   et <- tcExpr e
   bst <- forM bs $ tcBranch et
@@ -380,7 +381,7 @@ tcExpr (Expr.Match (t, loc) e bs) = do
     Just t -> do
       addEq t tr
       unify loc
-      applySubstsL $ Expr.Match (Just t, loc) et bst
+      pure $ Expr.Match (Just t, loc) et bst
 
 tcBranch :: Expr.LocExprT -> Expr.LocBranchT -> StateT Typechecker Result Expr.LocBranchT
 tcBranch et (Expr.Branch (t, loc) pat grd bdy) = do

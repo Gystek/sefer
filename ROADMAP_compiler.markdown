@@ -1,7 +1,7 @@
 Compiler Roadmap
 ================
 
-The elements listed be low should be more or less in the order they
+The elements listed below should be more or less in the order they
 appear in in the compiling pipeline.
 
 
