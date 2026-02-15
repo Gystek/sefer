@@ -1,4 +1,7 @@
-module Utils ( allThree, pairs, pairs2, fromJust ) where
+module Utils ( allThree, both, pairs, pairs2, fromJust ) where
+
+both :: (a -> b) -> (a, a) -> (b, b)
+both f (x, y) = (f x, f y)
 
 allThree :: (a -> b) -> (a, a, a) -> (b, b, b)
 allThree f (x, y, z) = (f x, f y, f z)

@@ -14,6 +14,7 @@ import Pattern
 import Type
 import Statement
 import Utils
+import qualified Data.List.Extra as Data.List
 
 data Typechecker = Typechecker
                    { vg :: Int
@@ -23,6 +24,8 @@ data Typechecker = Typechecker
                    , scs :: [Constructor]
                    , adts :: [ADType]
                    }
+
+type Subst = (Int, Type)
 
 data TCError = HeteroPrim Type Type
              | Unbound Text
@@ -57,8 +60,51 @@ addEq x y = do
   put tc { eqs = (x,y):eqs }
   pure ()
 
+substEq :: [(Type, Type)] -> Subst -> [(Type, Type)]
+substEq [] _ = []
+substEq (x:xs) s = Data.List.snoc (substEq xs s) $ flip both x $ uncurry applySubstT s
+
+substEqs :: [(Type, Type)] -> [Subst] -> [(Type, Type)]
+substEqs = Data.List.foldl substEq
+
+unifyLists :: Location -> [Type] -> [Type] -> [(Type, Type)] -> StateT Typechecker Result ([(Type, Type)], [Subst])
+unifyLists loc ls rs xs = do
+  (eq, ss) <- unifyList loc $ Prelude.zip ls rs
+  let eq' = substEqs eq ss
+  let xs' = substEqs xs ss
+  (eq1, ss1) <- unifyList loc xs'
+  let eq1' = flip substEqs ss1 $ eq' ++ eq1
+  pure (eq1', ss ++ ss1)
+
+unifyList :: Location -> [(Type, Type)] -> StateT Typechecker Result ([(Type, Type)], [Subst])
+unifyList _ [] = pure ([], [])
+unifyList loc ((Type.Character, Type.Character):xs) = unifyList loc xs
+unifyList loc ((Type.Integer, Type.Integer):xs) = unifyList loc xs
+unifyList loc ((Type.Floating, Type.Floating):xs) = unifyList loc xs
+unifyList loc ((Type.Boolean, Type.Boolean):xs) = unifyList loc xs
+unifyList loc ((Type.Tuple ls, Type.Tuple rs):xs) = unifyLists loc ls rs xs
+unifyList _ ((Type.RVar _, _):_) = error "not supposed to encounter strict typevars in unify"
+unifyList _ ((_, Type.RVar _):_) = error "not supposed to encounter strict typevars in unify"
+unifyList loc ((Type.Variable i, t):xs) = do
+  let sub = (i, t)
+  let xs' = substEq xs sub
+  (eq, ss) <- unifyList loc xs'
+  let ss' = sub:ss
+  let eq' = substEqs eq ss'
+  pure (eq', ss')
+unifyList loc ((Type.Fun largs lr, Type.Fun rargs rr):xs) = unifyLists loc (lr:largs) (rr:rargs) xs
+unifyList loc ((Type.Data li largs, Type.Data ri rargs):xs)
+  | li == ri = unifyLists loc largs rargs xs
+  | otherwise = throwError (loc, WrongADT li ri)
+unifyList loc ((lht, rht):_) = throwError (loc, UnifyFail lht rht)
+
 unify :: Location -> StateT Typechecker Result ()
-unify _ = pure () -- TODO
+unify loc = do
+  tc@Typechecker { eqs, subst } <- get
+  (eqs, ss) <- unifyList loc eqs
+  let subst' = fromList ss
+  put tc { eqs, subst = Data.HashMap.union subst' subst }
+  pure ()
 
 applySubsts :: LocExprT -> StateT Typechecker Result LocExprT
 applySubsts e = do
@@ -103,7 +149,6 @@ extractTypeP p = case Pattern.ann p of
 
 checkLists :: Location -> [Type] -> [Type] -> StateT Typechecker Result ()
 checkLists loc (x:xs) (y:ys) = addEq x y >> checkLists loc xs ys
-checkLists loc [] [] = unify loc
 -- works for curried applications:
 -- f : a -> b -> c, x : a => f x : b -> c
 -- checkLists _ [a b] [a] -> checkLists _ [b] []
@@ -123,8 +168,8 @@ unifyADTArgs loc ((Type.RVar x):ks) (t:ts) m = (if Data.HashMap.findWithDefault 
                                                else throwError (loc, flip UnifyFail t $ m ! x))
                                               >>= unifyADTArgs loc ks ts
 unifyADTArgs _ ((Type.Variable _):_) _ _ = error "shouldn't see type variables on the left hand side"
-unifyADTArgs loc (k:ks) (t@(Type.Variable i):ts) m = do
-  addEq k t
+unifyADTArgs loc (k:ks) (t@(Type.Variable _):ts) m = do
+  addEq k t -- is that enough?
   unify loc
   unifyADTArgs loc ks ts m
 unifyADTArgs loc ((Type.Fun xs e):ks) ((Type.Fun xs' e'):ts) m = unifyADTArgs loc [e] [e'] m
