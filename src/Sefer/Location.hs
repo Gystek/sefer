@@ -1,4 +1,4 @@
-module Location ( Location(..), Located ) where
+module Sefer.Location ( Location(..), Located ) where
 
 import Data.Text
 

@@ -1,7 +1,7 @@
-module Type ( Type(..), LocAnnT ) where
+module Sefer.Type ( Type(..), LocAnnT ) where
 
 import Data.Text
-import Location
+import Sefer.Location
 
 data Type = Character
            | Integer

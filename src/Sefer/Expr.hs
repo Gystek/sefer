@@ -1,10 +1,10 @@
-module Expr ( Expr(..), Branch(..), LocExprT, LocBranchT ) where
+module Sefer.Expr (Expr (..), Branch (..), LocExprT, LocBranchT) where
 
 import Data.Text
-import Literal ( Literal )
-import Location
-import Pattern
-import Type
+import Sefer.Literal ( Literal )
+import Sefer.Location
+import qualified Sefer.Pattern as Pattern
+import qualified Sefer.Type as Type
 
 data Expr a = Literal { ann :: a, lit :: Literal }
             | Tuple { ann :: a, els :: [Expr a] }
@@ -17,8 +17,8 @@ data Expr a = Literal { ann :: a, lit :: Literal }
             | Cond { ann :: a, ei :: Expr a, et :: Expr a, ee :: Expr a }
             | Match { ann :: a, e :: Expr a, branches :: [Branch a] }
 
-data Branch a = Branch a (Pattern a) (Maybe (Expr a)) (Expr a)
+data Branch a = Branch a (Pattern.Pattern a) (Maybe (Expr a)) (Expr a)
 
-type LocBranchT = Branch LocAnnT
+type LocBranchT = Branch Type.LocAnnT
 
-type LocExprT = Expr LocAnnT
+type LocExprT = Expr Type.LocAnnT
