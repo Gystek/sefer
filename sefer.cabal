@@ -101,4 +101,6 @@ test-suite sefer-test
                     , sefer-lang
                     , tasty
                     , tasty-hunit
+                    , mtl ^>=2.3.2
+                    , text ^>=2.0.2
     default-language: Haskell2010
