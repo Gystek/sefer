@@ -18,7 +18,7 @@ instance Show a => Show (Pattern a) where
   show (Literal ann lit) = show lit ++ "@" ++ show ann
   show (Tuple ann els) = "(" ++ Data.List.intercalate ", " (Prelude.map show els) ++ ")" ++ "@" ++ show ann
   show (Binding ann v) = unpack v ++ "@" ++ show ann
-  show (Const ann k args) = "Const$" ++ show k ++ " " ++ Data.List.intercalate " " (Prelude.map show args) ++ "@" ++ show ann
+  show (Const ann k args) = "Const$" ++ show k ++ " " ++ Data.List.unwords (Prelude.map show args) ++ "@" ++ show ann
   show (Or ann lp rp) = show lp ++ " | " ++ show rp ++ "@" ++ show ann
   show (At ann x p) = unpack x ++ " <- " ++ show p ++ "@" ++ show ann
 

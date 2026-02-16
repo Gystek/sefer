@@ -145,4 +145,50 @@ tcTests = testGroup "Typechecker tests"
                      Nothing
                      $ Expr.Literal (Just Type.Integer, defLoc) $ Literal.Integer 0
                    ])
+  , testCase "lambda abstraction and primitive application" $
+    let e = Expr.Abs (Nothing, defLoc)
+            [ (pack "x", (Nothing, defLoc))
+            , (pack "y", (Nothing, defLoc))
+            ]
+            $ Expr.App (Nothing, defLoc)
+            (Expr.Var (Nothing, defLoc) $ pack "$addInt") [ Expr.Var (Nothing, defLoc) $ pack "x"
+                                                          , Expr.Var (Nothing, defLoc) $ pack "y"
+                                                          ]
+    in evalStateT (runTC e) (initTC [] [])
+       @?= Right (Expr.Abs (Just $ Type.Fun [Type.Integer, Type.Integer] Type.Integer, defLoc)
+                  [ (pack "x", (Just Type.Integer, defLoc))
+                  , (pack "y", (Just Type.Integer, defLoc))
+                  ]
+                  $ Expr.App
+                   (Just Type.Integer, defLoc)
+                   (Expr.Var (Just $ Type.Fun [Type.Integer, Type.Integer] Type.Integer, defLoc)
+                    $ pack "$addInt"
+                   )
+                   [ Expr.Var (Just Type.Integer, defLoc) $ pack "x"
+                   , Expr.Var (Just Type.Integer, defLoc) $ pack "y"
+                   ]
+                 )
+  , testCase "direct application of lambda abstraction" $
+    let e = Expr.App (Nothing, defLoc)
+            (Expr.Abs (Nothing, defLoc)
+             [ (pack "x", (Nothing, defLoc))
+             , (pack "y", (Nothing, defLoc))
+             ]
+             $ Expr.Var (Nothing, defLoc) $ pack "x"
+            )
+            [ Expr.Literal (Nothing, defLoc) $ Literal.Integer 3
+            , Expr.Literal (Nothing, defLoc) $ Literal.Integer 2
+            ]
+    in evalStateT (runTC e) (initTC [] [])
+       @?= Right (Expr.App (Just Type.Integer, defLoc)
+                  (Expr.Abs (Just $ Type.Fun [Type.Integer, Type.Integer] Type.Integer, defLoc)
+                   [ (pack "x", (Just Type.Integer, defLoc))
+                   , (pack "y", (Just Type.Integer, defLoc))
+                   ]
+                   $ Expr.Var (Just Type.Integer, defLoc) $ pack "x"
+                  )
+                  [ Expr.Literal (Just Type.Integer, defLoc) $ Literal.Integer 3
+                  , Expr.Literal (Just Type.Integer, defLoc) $ Literal.Integer 2
+                  ]
+                 )
   ]

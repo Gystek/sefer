@@ -40,7 +40,7 @@ type Result = Either (Located TCError)
 
 initTC :: [Constructor] -> [ADType] -> Typechecker
 initTC scs adts = Typechecker { vg = 0
-                              , bindings = Data.HashMap.empty
+                              , bindings = defaultBindings
                               , eqs = []
                               , subst = Data.HashMap.empty
                               , scs
@@ -49,6 +49,10 @@ initTC scs adts = Typechecker { vg = 0
 
 runTC :: Expr.LocExprT -> StateT Typechecker Result Expr.LocExprT
 runTC e = tcExpr e >>= applySubstsL -- TODO: add inference failure check
+
+defaultBindings :: Map Text Type.Type
+defaultBindings = Data.HashMap.fromList [ (pack "$addInt", Type.Fun [Type.Integer, Type.Integer] Type.Integer)
+                                        ]
 
 newVar :: StateT Typechecker Result Int
 newVar = do

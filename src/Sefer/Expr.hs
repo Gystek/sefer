@@ -23,9 +23,9 @@ instance Show a => Show (Expr a) where
   show (Literal ann lit) = show lit ++ "@" ++ show ann
   show (Tuple ann els) = "(" ++ Data.List.intercalate ", " (Prelude.map show els) ++ ")" ++ "@" ++ show ann
   show (Var ann v) = unpack v ++ "@" ++ show ann
-  show (Const ann k args) = "Const$" ++ show k ++ " " ++ Data.List.intercalate " " (Prelude.map show args) ++ "@" ++ show ann
-  show (App ann f args) = show f ++ " " ++ Data.List.intercalate " " (Prelude.map show args) ++ "@" ++ show ann
-  show (Abs ann args ret) = "fun " ++ Data.List.intercalate " " (Prelude.map show args) ++ " = " ++ show ret ++ "@" ++ show ann
+  show (Const ann k args) = "Const$" ++ show k ++ " " ++ Data.List.unwords (Prelude.map show args) ++ "@" ++ show ann
+  show (App ann f args) = show f ++ " " ++ Data.List.unwords (Prelude.map show args) ++ "@" ++ show ann
+  show (Abs ann args ret) = "fun " ++ Data.List.unwords (Prelude.map show args) ++ " = " ++ show ret ++ "@" ++ show ann
   show (Let ann x y z) = "let " ++ show x ++ " = " ++ show y ++ " in " ++ show z ++ "@" ++ show ann
   show (Cond ann ei et ee) = "if " ++ show ei ++ " then " ++ show et ++ " else " ++ show ee ++ "@" ++ show ann
   show (Match ann e br) = "match " ++ show e ++ "{\n" ++ Data.List.intercalate ",\n" (Prelude.map show br) ++ "\n}" ++ "@" ++ show ann
