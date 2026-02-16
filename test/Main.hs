@@ -191,4 +191,15 @@ tcTests = testGroup "Typechecker tests"
                   , Expr.Literal (Just Type.Integer, defLoc) $ Literal.Integer 2
                   ]
                  )
+  , testCase "partial function application" $
+    let e = Expr.App (Nothing, defLoc)
+            (Expr.Var (Nothing, defLoc) $ pack "$addInt")
+            [ Expr.Literal (Nothing, defLoc) $ Literal.Integer 5 ]
+    in evalStateT (runTC e) (initTC [] [])
+       @?= Right (Expr.App (Just $ Type.Fun [Type.Integer] Type.Integer, defLoc)
+                  (Expr.Var (Just $ Type.Fun [Type.Integer, Type.Integer] Type.Integer, defLoc)
+                   $ pack "$addInt"
+                  )
+                  [ Expr.Literal (Just Type.Integer, defLoc) $ Literal.Integer 5 ]
+                 )
   ]
