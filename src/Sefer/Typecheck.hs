@@ -26,8 +26,6 @@ data Typechecker = Typechecker
                    }
                    deriving Show
 
-type Subst = (Int, Type.Type)
-
 data TCError = HeteroPrim Type.Type Type.Type
              | Unbound Text
              | TupleArity Int Int
@@ -50,7 +48,7 @@ initTC scs adts = Typechecker { vg = 0
                               }
 
 runTC :: Expr.LocExprT -> StateT Typechecker Result Expr.LocExprT
-runTC e = tcExpr e >>= applySubstsL
+runTC e = tcExpr e >>= applySubstsL -- TODO: add inference failure check
 
 newVar :: StateT Typechecker Result Int
 newVar = do
@@ -64,40 +62,37 @@ addEq x y = do
   put tc { eqs = (x,y):eqs }
   pure ()
 
-substEq :: [(Type.Type, Type.Type)] -> Subst -> [(Type.Type, Type.Type)]
+substEq :: [(Type.Type, Type.Type)] -> Map Int Type.Type -> [(Type.Type, Type.Type)]
 substEq [] _ = []
-substEq (x:xs) s = Data.List.snoc (substEq xs s) $ flip both x $ uncurry applySubstT s
+substEq (x:xs) m = Data.List.snoc (substEq xs m) $ both (applySubstsT m) x
 
-substEqs :: [(Type.Type, Type.Type)] -> [Subst] -> [(Type.Type, Type.Type)]
-substEqs = Data.List.foldl substEq
-
-unifyLists :: Location -> [Type.Type] -> [Type.Type] -> [(Type.Type, Type.Type)] -> StateT Typechecker Result ([(Type.Type, Type.Type)], [Subst])
+unifyLists :: Location -> [Type.Type] -> [Type.Type] -> [(Type.Type, Type.Type)] -> StateT Typechecker Result ([(Type.Type, Type.Type)], Map Int Type.Type)
 unifyLists loc ls rs xs = do
   (eq, ss) <- unifyList loc $ Prelude.zip ls rs
-  let eq' = substEqs eq ss
-  let xs' = substEqs xs ss
+  let eq' = substEq eq ss
+  let xs' = substEq xs ss
   (eq1, ss1) <- unifyList loc xs'
-  let eq1' = flip substEqs ss1 $ eq' ++ eq1
-  pure (eq1', ss ++ ss1)
+  let eq1' = flip substEq ss1 $ eq' ++ eq1
+  pure (eq1', Data.HashMap.union ss1 ss)
 
-unifyList :: Location -> [(Type.Type, Type.Type)] -> StateT Typechecker Result ([(Type.Type, Type.Type)], [Subst])
-unifyList _ [] = pure ([], [])
+unifyList :: Location -> [(Type.Type, Type.Type)] -> StateT Typechecker Result ([(Type.Type, Type.Type)], Map Int Type.Type)
+unifyList _ [] = pure ([], Data.HashMap.empty)
 unifyList _ ((Type.RVar _, _):_) = error "not supposed to encounter strict typevars in unify"
 unifyList _ ((_, Type.RVar _):_) = error "not supposed to encounter strict typevars in unify"
 unifyList loc ((Type.Variable i, Type.Variable j):xs) | i == j = unifyList loc xs
 unifyList loc ((Type.Variable i, t):xs) = do
-  let sub = (i, t)
+  let sub = Data.HashMap.singleton i t
   let xs' = substEq xs sub
   (eq, ss) <- unifyList loc xs'
-  let ss' = sub:ss
-  let eq' = substEqs eq ss'
+  let ss' = Data.HashMap.union ss sub
+  let eq' = substEq eq ss'
   pure (eq', ss')
 unifyList loc ((t, Type.Variable i):xs) = do
-  let sub = (i, t)
+  let sub = Data.HashMap.singleton i t
   let xs' = substEq xs sub
   (eq, ss) <- unifyList loc xs'
-  let ss' = sub:ss
-  let eq' = substEqs eq ss'
+  let ss' = Data.HashMap.union ss sub
+  let eq' = substEq eq ss'
   pure (eq', ss')
 unifyList loc ((Type.Fun largs lr, Type.Fun rargs rr):xs) = unifyLists loc (lr:largs) (rr:rargs) xs
 unifyList loc ((Type.Data li largs, Type.Data ri rargs):xs)
@@ -109,63 +104,58 @@ unifyList loc ((lht, rht):xs) | lht == rht = unifyList loc xs
 unify :: Location -> StateT Typechecker Result ()
 unify loc = do
   tc@Typechecker { eqs, subst } <- get
-  let eqs' = substEqs eqs $ Data.HashMap.assocs subst
-  (eqs, ss) <- unifyList loc eqs'
-  let subst' = fromList ss
+  let eqs' = substEq eqs subst
+  (eqs, subst') <- unifyList loc eqs'
   put tc { eqs, subst = Data.HashMap.union subst' subst }
 
 applySubstsL :: Expr.LocExprT -> StateT Typechecker Result Expr.LocExprT
 applySubstsL e = do
-  e' <- applySubsts e
+  Typechecker { subst } <- get
+  let e' = applySubsts subst e
   if e == e' then pure e else applySubstsL e'
 
-applySubsts :: Expr.LocExprT -> StateT Typechecker Result Expr.LocExprT
-applySubsts e = do
-  Typechecker { subst } <- get
-  pure $ Data.HashMap.foldWithKey applySubst e subst
+applySubstsB :: Map Int Type.Type -> Expr.LocBranchT -> Expr.Branch (Maybe Type.Type, Location)
+applySubstsB m (Expr.Branch (t, loc) pat grd bdy) = let pat' = applySubstsP m pat
+                                                        grd' = applySubsts m <$> grd
+                                                        bdy' = applySubsts m bdy
+                                                      in Expr.Branch (applySubstsT m <$> t, loc) pat' grd' bdy'
 
-applySubstB :: Int -> Type.Type -> Expr.LocBranchT -> Expr.Branch (Maybe Type.Type, Location)
-applySubstB i t1 (Expr.Branch (t, loc) pat grd bdy) = let pat' = applySubstP i t1 pat
-                                                          grd' = applySubst i t1 <$> grd
-                                                          bdy' = applySubst i t1 bdy
-                                                      in Expr.Branch (applySubstT i t1 <$> t, loc) pat' grd' bdy'
+applySubstsP' :: Type.LocAnnT -> Map Int Type.Type -> Pattern.LocPatternT -> Pattern.LocPatternT
+applySubstsP' st m (Pattern.Literal _ lit) = Pattern.Literal st lit
+applySubstsP' st m (Pattern.Tuple _ args) = Pattern.Tuple st $ flip Prelude.map args $ applySubstsP m
+applySubstsP' st m (Pattern.Binding _ v) = Pattern.Binding st v
+applySubstsP' st m (Pattern.Const _ k cargs) = Pattern.Const st k $ flip Prelude.map cargs $ applySubstsP m
+applySubstsP' st m (Pattern.Or _ lp rp) = Pattern.Or st (applySubstsP m lp) (applySubstsP m rp)
+applySubstsP' st m (Pattern.At _ v p) = Pattern.At st v $ applySubstsP m p
 
-applySubstP' :: Type.LocAnnT -> Int -> Type.Type -> Pattern.LocPatternT -> Pattern.LocPatternT
-applySubstP' st i t1 (Pattern.Literal _ lit) = Pattern.Literal st lit
-applySubstP' st i t1 (Pattern.Tuple _ args) = Pattern.Tuple st $ flip Prelude.map args $ applySubstP i t1
-applySubstP' st i t1 (Pattern.Binding _ v) = Pattern.Binding st v
-applySubstP' st i t1 (Pattern.Const _ k cargs) = Pattern.Const st k $ flip Prelude.map cargs $ applySubstP i t1
-applySubstP' st i t1 (Pattern.Or _ lp rp) = Pattern.Or st (applySubstP i t1 lp) (applySubstP i t1 rp)
-applySubstP' st i t1 (Pattern.At _ v p) = Pattern.At st v $ applySubstP i t1 p
-
-applySubstP :: Int -> Type.Type -> Pattern.LocPatternT -> Pattern.LocPatternT
-applySubstP i t1 p = case Pattern.ann p of
-                       (Just t, loc) -> applySubstP' (Just $ applySubstT i t1 t, loc) i t1 p
+applySubstsP :: Map Int Type.Type -> Pattern.LocPatternT -> Pattern.LocPatternT
+applySubstsP m p = case Pattern.ann p of
+                       (Just t, loc) -> applySubstsP' (Just $ applySubstsT m t, loc) m p
                        (Nothing, _) -> p
 
-applySubstT :: Int -> Type.Type -> Type.Type -> Type.Type
-applySubstT i t1 (Type.Variable j)
-  | i == j = t1
-  | otherwise = Type.Variable j
-applySubstT i t1 (Type.Tuple ts) = Type.Tuple $ flip Prelude.map ts $ applySubstT i t1
-applySubstT i t1 (Type.Fun args et) = flip Type.Fun (applySubstT i t1 et) $ flip Prelude.map args $ applySubstT i t1
-applySubstT i t1 (Type.Data d ts) = Type.Data d $ flip Prelude.map ts $ applySubstT i t1
-applySubstT _ _ t = t
+applySubstsT :: Map Int Type.Type -> Type.Type -> Type.Type
+applySubstsT m (Type.Variable j) = case Data.HashMap.lookup j m of
+                                    Nothing -> Type.Variable j
+                                    Just t -> t
+applySubstsT m (Type.Tuple ts) = Type.Tuple $ flip Prelude.map ts $ applySubstsT m
+applySubstsT m (Type.Fun args et) = flip Type.Fun (applySubstsT m et) $ flip Prelude.map args $ applySubstsT m
+applySubstsT m (Type.Data d ts) = Type.Data d $ flip Prelude.map ts $ applySubstsT m
+applySubstsT _ t = t
 
-applySubst' :: Type.LocAnnT -> Int -> Type.Type -> Expr.LocExprT -> Expr.LocExprT
-applySubst' st _ _ (Expr.Literal _ lit) = Expr.Literal st lit
-applySubst' st i t1 (Expr.Tuple _ args) = Expr.Tuple st $ flip Prelude.map args $ applySubst i t1
-applySubst' st _ _ (Expr.Var _ v) = Expr.Var st v
-applySubst' st i t1 (Expr.Const _ k args) = Expr.Const st k $ flip Prelude.map args $ applySubst i t1
-applySubst' st i t1 (Expr.App _ f args) = Expr.App st (applySubst i t1 f) $ flip Prelude.map args $ applySubst i t1
-applySubst' st i t1 (Expr.Abs _ args e) = flip (Expr.Abs st) (applySubst i t1 e) $ flip Prelude.map args $ \(x, (tx, xl)) -> (x, (applySubstT i t1 <$> tx, xl))
-applySubst' st i t1 (Expr.Let _ (x, (tx, xl)) y z) =  Expr.Let st (x, (applySubstT i t1 <$> tx, xl)) (applySubst i t1 y) (applySubst i t1 z)
-applySubst' st i t1 (Expr.Cond _ x y z) = Expr.Cond st (applySubst i t1 x) (applySubst i t1 y) (applySubst i t1 z)
-applySubst' st i t1 (Expr.Match _ e bs) = Expr.Match st (applySubst i t1 e) $ flip Prelude.map bs $ applySubstB i t1
+applySubsts' :: Type.LocAnnT -> Map Int Type.Type -> Expr.LocExprT -> Expr.LocExprT
+applySubsts' st _ (Expr.Literal _ lit) = Expr.Literal st lit
+applySubsts' st m (Expr.Tuple _ args) = Expr.Tuple st $ flip Prelude.map args $ applySubsts m
+applySubsts' st _ (Expr.Var _ v) = Expr.Var st v
+applySubsts' st m (Expr.Const _ k args) = Expr.Const st k $ flip Prelude.map args $ applySubsts m
+applySubsts' st m (Expr.App _ f args) = Expr.App st (applySubsts m f) $ flip Prelude.map args $ applySubsts m
+applySubsts' st m (Expr.Abs _ args e) = flip (Expr.Abs st) (applySubsts m e) $ flip Prelude.map args $ \(x, (tx, xl)) -> (x, (applySubstsT m <$> tx, xl))
+applySubsts' st m (Expr.Let _ (x, (tx, xl)) y z) =  Expr.Let st (x, (applySubstsT m <$> tx, xl)) (applySubsts m y) (applySubsts m z)
+applySubsts' st m (Expr.Cond _ x y z) = Expr.Cond st (applySubsts m x) (applySubsts m y) (applySubsts m z)
+applySubsts' st m (Expr.Match _ e bs) = Expr.Match st (applySubsts m e) $ flip Prelude.map bs $ applySubstsB m
 
-applySubst :: Int -> Type.Type -> Expr.LocExprT -> Expr.LocExprT
-applySubst i t1 e = case Expr.ann e of
-                      (Just t, loc) -> applySubst' (Just $ applySubstT i t1 t, loc) i t1 e
+applySubsts :: Map Int Type.Type -> Expr.LocExprT -> Expr.LocExprT
+applySubsts m e = case Expr.ann e of
+                      (Just t, loc) -> applySubsts' (Just $ applySubstsT m t, loc) m e
                       (Nothing, _) -> e
 
 extractType :: Expr.LocExprT -> Type.Type
