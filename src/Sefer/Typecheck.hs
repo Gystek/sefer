@@ -1,4 +1,5 @@
 {-# LANGUAGE NamedFieldPuns #-}
+{-# LANGUAGE LambdaCase #-}
 module Sefer.Typecheck ( Typechecker(..), TCError(..), initTC, runTC ) where
 
 import Control.Applicative
@@ -7,6 +8,7 @@ import Control.Monad.Except
 import Control.Monad.State
 import Data.Foldable
 import Data.HashMap
+import Data.Maybe
 import Data.Text
 import qualified Sefer.Expr as Expr
 import qualified Sefer.Literal as Literal
@@ -95,6 +97,9 @@ runTC e = do
 
 defaultBindings :: Map Text Type.Type
 defaultBindings = Data.HashMap.fromList [ (pack "$addInt", Type.Fun [Type.Integer, Type.Integer] Type.Integer)
+                                        , (pack "$id", Type.Fun [Type.RVar $ pack "a"] $ Type.RVar $ pack "a")
+                                        , (pack "$const", Type.Fun [Type.RVar $ pack "a", Type.RVar $ pack "b"]
+                                                          $ Type.RVar $ pack "a")
                                         ]
 
 newVar :: StateT Typechecker Result Int
@@ -170,6 +175,7 @@ applySubstsL e = do
   let e' = applySubsts subst e
   if e == e' then pure e else applySubstsL e'
 
+-- TODO: rewrite all similar functions as calls to a more general function
 applySubstsB :: Map Int Type.Type -> Expr.LocBranchT -> Expr.Branch (Maybe Type.Type, Location)
 applySubstsB m (Expr.Branch (t, loc) pat grd bdy) = let pat' = applySubstsP m pat
                                                         grd' = applySubsts m <$> grd
@@ -187,7 +193,7 @@ applySubstsP' st m (Pattern.At _ v p) = Pattern.At st v $ applySubstsP m p
 applySubstsP :: Map Int Type.Type -> Pattern.LocPatternT -> Pattern.LocPatternT
 applySubstsP m p = case Pattern.ann p of
                        (Just t, loc) -> applySubstsP' (Just $ applySubstsT m t, loc) m p
-                       (Nothing, _) -> p
+                       (Nothing, loc) -> applySubstsP' (Nothing, loc) m p
 
 applySubstsT :: Map Int Type.Type -> Type.Type -> Type.Type
 applySubstsT m (Type.Variable j) = case Data.HashMap.lookup j m of
@@ -212,7 +218,7 @@ applySubsts' st m (Expr.Match _ e bs) = Expr.Match st (applySubsts m e) $ flip P
 applySubsts :: Map Int Type.Type -> Expr.LocExprT -> Expr.LocExprT
 applySubsts m e = case Expr.ann e of
                       (Just t, loc) -> applySubsts' (Just $ applySubstsT m t, loc) m e
-                      (Nothing, _) -> e
+                      (Nothing, loc) -> applySubsts' (Nothing, loc) m e
 
 extractType :: Expr.LocExprT -> Type.Type
 extractType e = case Expr.ann e of
@@ -228,6 +234,51 @@ checkLists loc (x:xs) (y:ys) = addEq loc x y >> checkLists loc xs ys
 -- f : a -> b -> c, x : a => f x : b -> c
 -- checkLists _ [a b] [a] -> checkLists _ [b] []
 checkLists loc _ [] = unify loc
+
+instanciateP' :: Type.LocAnnT -> Map Text Type.Type -> Pattern.LocPatternT -> Pattern.LocPatternT
+instanciateP' it m (Pattern.Literal _ lit) = Pattern.Literal it lit
+instanciateP' it m (Pattern.Tuple _ args) = Pattern.Tuple it $ flip Prelude.map args $ instanciateP m
+instanciateP' it m (Pattern.Binding _ x) = Pattern.Binding it x
+instanciateP' it m (Pattern.Const _ i args) = Pattern.Const it i $ flip Prelude.map args $ instanciateP m
+instanciateP' it m (Pattern.Or _ lp rp) = Pattern.Or it (instanciateP m lp) (instanciateP m rp)
+instanciateP' it m (Pattern.At _ x p) = Pattern.At it x (instanciateP m p)
+
+instanciateP :: Map Text Type.Type -> Pattern.LocPatternT -> Pattern.LocPatternT
+instanciateP m p = case Pattern.ann p of
+                     (Just t, loc) -> instanciateP' (Just $ instanciateT m t, loc) m p
+                     (Nothing, loc) -> instanciateP' (Nothing, loc) m p
+
+instanciateB :: Map Text Type.Type -> Expr.LocBranchT -> Expr.LocBranchT
+instanciateB m (Expr.Branch (t, loc) p g e) = Expr.Branch (instanciateT m <$> t, loc)
+                                              (instanciateP m p)
+                                              (instanciate m <$> g)
+                                              (instanciate m e)
+
+instanciate' :: Type.LocAnnT -> Map Text Type.Type -> Expr.LocExprT -> Expr.LocExprT
+instanciate' it _ (Expr.Literal _ lit) = Expr.Literal it lit
+instanciate' it m (Expr.Tuple _ args) = Expr.Tuple it $ flip Prelude.map args $ instanciate m
+instanciate' it _ (Expr.Var _ v) = Expr.Var it v
+instanciate' it m (Expr.Const _ k args) = Expr.Const it k $ flip Prelude.map args $ instanciate m
+instanciate' it m (Expr.App _ f args) = Expr.App it (instanciate m f) $ flip Prelude.map args $ instanciate m
+instanciate' it m (Expr.Abs _ args e) = flip (Expr.Abs it) (instanciate m e) $ flip Prelude.map args $ \(x, (tx, xl)) -> (x, (instanciateT m <$> tx, xl))
+instanciate' it m (Expr.Let _ (x, (tx, xl)) y z) = Expr.Let it (x, (instanciateT m <$> tx, xl)) (instanciate m y) (instanciate m z)
+instanciate' it m (Expr.Cond _ ei et ee) = Expr.Cond it (instanciate m ei) (instanciate m et) (instanciate m ee)
+instanciate' it m (Expr.Match _ e bs) = Expr.Match it (instanciate m e) $ flip Prelude.map bs $ instanciateB m
+
+instanciate :: Map Text Type.Type -> Expr.LocExprT -> Expr.LocExprT
+instanciate m e = case Expr.ann e of
+                    (Nothing, loc) -> instanciate' (Nothing, loc) m e
+                    (Just t, loc) -> instanciate' (Just $ instanciateT m t, loc) m e
+
+instanciateT :: Map Text Type.Type -> Type.Type -> Type.Type
+instanciateT m t@(Type.RVar x) = fromMaybe t $ Data.HashMap.lookup x m
+instanciateT m (Type.Tuple ts) = Type.Tuple $ flip Prelude.map ts $ instanciateT m
+instanciateT m (Type.Fun ts tr) = flip Type.Fun (instanciateT m tr) $ flip Prelude.map ts $ instanciateT m
+instanciateT m (Type.Data i ts) = Type.Data i $ flip Prelude.map ts $ instanciateT m
+instanciateT _ t = t
+
+getTVarInstances :: [Type.Type] -> [Type.Type] -> Map Text Type.Type
+getTVarInstances xs ys = Data.HashMap.fromList . flip Data.Maybe.mapMaybe (Prelude.zip xs ys) $ \case { (Type.RVar v, t) -> Just (v, t); _ -> Nothing }
 
 unifyADTArgs :: Location -> [Type.Type] -> [Type.Type] -> Map Text Type.Type -> StateT Typechecker Result (Map Text Type.Type)
 unifyADTArgs _ [] [] m = pure m
@@ -300,7 +351,7 @@ tcExpr (Expr.App (t, loc) (Expr.Abs (tf, loc1) fargs expr) cargs) = do
   case t of
     Nothing -> tcExpr $ Expr.App (Just tapp, loc) ft ctargs
     Just t -> do
-      addEq loc t (extractType exprt)
+      addEq loc t tapp
       unify loc
       pure $ Expr.App (Just t, loc) ft ctargs
 tcExpr (Expr.App (t, loc) f cargs) = do
@@ -310,7 +361,7 @@ tcExpr (Expr.App (t, loc) f cargs) = do
     Type.Fun targs tr -> do
       if Prelude.length targs < Prelude.length ctargs
         then throwError (loc, FunArity (Prelude.length targs) (Prelude.length ctargs))
-        else checkLists loc targs $ Prelude.map extractType ctargs
+        else checkLists loc targs $ Prelude.map extractType ctargs -- unifies
       let htargs = Prelude.drop (Prelude.length ctargs) targs
       if Prelude.null htargs
         then pure tr

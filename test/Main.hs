@@ -22,7 +22,10 @@ tests :: TestTree
 tests = testGroup "Sefer tests" [tcTests]
 
 tcTests :: TestTree
-tcTests = testGroup "Typechecker tests"
+tcTests = testGroup "Typechecker tests" [tcMonoTests, tcPolyTests]
+
+tcMonoTests :: TestTree
+tcMonoTests = testGroup "Typechecker (monomorphic) tests"
   [ testCase "integer literal" $
     let e l t = Expr.Literal (t, l) $ Literal.Integer 5
     in evalStateT (runTC $ e defLoc Nothing) (initTC [] []) @?= Right (e defLoc $ Just Type.Integer)
@@ -202,4 +205,156 @@ tcTests = testGroup "Typechecker tests"
                   )
                   [ Expr.Literal (Just Type.Integer, defLoc) $ Literal.Integer 5 ]
                  )
+  ]
+
+tcPolyTests :: TestTree
+tcPolyTests = testGroup "Typechecker (polymorphic) tests" $
+  [ testCase "indirect function application" $
+    let e = Expr.App (Nothing, defLoc)
+            (Expr.Var (Nothing, defLoc) $ pack "$id")
+            [ Expr.Literal (Nothing, defLoc) $ Literal.Integer 5 ]
+    in evalStateT (runTC e) (initTC [] [])
+       @?= Right (Expr.App (Just Type.Integer, defLoc)
+                  (Expr.Var (Just $ Type.Fun [Type.RVar $ pack "a"] $ Type.RVar $ pack "a", defLoc)
+                   $ pack "$id"
+                  )
+                  [ Expr.Literal (Just Type.Integer, defLoc) $ Literal.Integer 5 ]
+                 )
+  , testCase "indirect partial function application" $
+    let e = Expr.App (Nothing, defLoc)
+            (Expr.Var (Nothing, defLoc) $ pack "$const")
+            [ Expr.Literal (Nothing, defLoc) $ Literal.Integer 5 ]
+    in evalStateT (runTC e) (initTC [] [])
+       @?= Right (Expr.App (Just $ Type.Fun [Type.RVar $ pack "b"] Type.Integer, defLoc)
+                  (Expr.Var (Just $ Type.Fun [Type.RVar $ pack "a", Type.RVar $ pack "b"] $ Type.RVar $ pack "a", defLoc)
+                   $ pack "$const"
+                  )
+                  [ Expr.Literal (Just Type.Integer, defLoc) $ Literal.Integer 5 ]
+                 )
+  , testCase "direct function application" $
+    let e = Expr.App (Nothing, defLoc)
+            (Expr.Abs (Nothing, defLoc) [(pack "x", (Just $ Type.RVar $ pack "a", defLoc))]
+             $ Expr.Var (Nothing, defLoc) $ pack "x"
+            )
+            [ Expr.Literal (Nothing, defLoc) $ Literal.Integer 5 ]
+    in evalStateT (runTC e) (initTC [] [])
+       @?= Right (Expr.App (Just Type.Integer, defLoc)
+                  (Expr.Abs (Just $ Type.Fun [Type.RVar $ pack "a"] $ Type.RVar $ pack "a", defLoc)
+                    [(pack "x", (Just $ Type.RVar $ pack "a", defLoc))]
+                    $ Expr.Var (Just $ Type.RVar $ pack "a", defLoc) $ pack "x"
+                  )
+                  [ Expr.Literal (Just Type.Integer, defLoc) $ Literal.Integer 5 ]
+                 )
+  , testCase "direct partial function application" $
+    let e = Expr.App (Nothing, defLoc)
+            (Expr.Abs (Nothing, defLoc)
+              [ (pack "x", (Just $ Type.RVar $ pack "a", defLoc))
+              , (pack "y", (Just $ Type.RVar $ pack "b", defLoc))
+              ]
+             $ Expr.Var (Nothing, defLoc) $ pack "x"
+            )
+            [ Expr.Literal (Nothing, defLoc) $ Literal.Integer 5 ]
+    in evalStateT (runTC e) (initTC [] [])
+       @?= Right (Expr.App (Just $ Type.Fun [Type.RVar $ pack "b"] Type.Integer, defLoc)
+                  (Expr.Abs ( Just $ Type.Fun [ Type.RVar $ pack "a"
+                                              , Type.RVar $ pack "b"
+                                              ]
+                              $ Type.RVar $ pack "a"
+                            , defLoc
+                            )
+                   [ (pack "x", (Just $ Type.RVar $ pack "a", defLoc))
+                   , (pack "y", (Just $ Type.RVar $ pack "b", defLoc))
+                   ]
+                    $ Expr.Var (Just $ Type.RVar $ pack "a", defLoc) $ pack "x"
+                  )
+                  [ Expr.Literal (Just Type.Integer, defLoc) $ Literal.Integer 5 ]
+                 )
+  , testCase "lambda abstraction" $
+    let e = Expr.Abs (Nothing, defLoc) -- fun (f: a -> b) x y = (f x, f y)
+            [ (pack "f", (Just $ Type.Fun [Type.RVar $ pack "a"] $ Type.RVar $ pack "b", defLoc))
+            , (pack "x", (Just $ Type.RVar $ pack "a", defLoc))
+            , (pack "y", (Just $ Type.RVar $ pack "a", defLoc))
+            ]
+            $ Expr.Tuple (Nothing, defLoc)
+            [ Expr.App (Nothing, defLoc)
+              (Expr.Var (Nothing, defLoc) $ pack "f")
+              [Expr.Var (Nothing, defLoc) $ pack "x"]
+            , Expr.App (Nothing, defLoc)
+              (Expr.Var (Nothing, defLoc) $ pack "f")
+              [Expr.Var (Nothing, defLoc) $ pack "x"]
+            ]
+    in evalStateT (runTC e) (initTC [] [])
+       @?= Right (Expr.Abs ( Just $ Type.Fun [ Type.Fun [ Type.RVar $ pack "a"] $ Type.RVar $ pack "b"
+                                             , Type.RVar $ pack "a"
+                                             , Type.RVar $ pack "a"
+                                             ]
+                             $ Type.Tuple [ Type.RVar $ pack "b", Type.RVar $ pack "b" ]
+                           , defLoc)
+                  [ (pack "f", (Just $ Type.Fun [Type.RVar $ pack "a"] $ Type.RVar $ pack "b", defLoc))
+                  , (pack "x", (Nothing, defLoc))
+                  , (pack "y", (Nothing, defLoc))
+                  ]
+                  $ Expr.Tuple (Just $ Type.Tuple [ Type.RVar $ pack "b", Type.RVar $ pack "b" ], defLoc)
+                  [ Expr.App (Just $ Type.RVar $ pack "b", defLoc)
+                    (Expr.Var (Just $ Type.Fun [ Type.RVar $ pack "a" ] $ Type.RVar $ pack "b", defLoc)
+                     $ pack "f"
+                    )
+                    [Expr.Var (Just $ Type.RVar $ pack "a", defLoc)
+                     $ pack "x"
+                    ]
+                  , Expr.App (Just $ Type.RVar $ pack "b", defLoc)
+                    (Expr.Var (Just $ Type.Fun [ Type.RVar $ pack "a" ] $ Type.RVar $ pack "b", defLoc)
+                     $ pack "f"
+                    )
+                    [Expr.Var (Just $ Type.RVar $ pack "a", defLoc)
+                     $ pack "x"
+                    ]
+                  ]
+                 )
+  , testCase "heterogenous instanciation" $
+    let e = Expr.Abs (Nothing, defLoc) -- fun (f: a -> b) x y = (f x, f y)
+          [ (pack "f", (Just $ Type.Fun [Type.RVar $ pack "a"] $ Type.RVar $ pack "b", defLoc))
+            , (pack "x", (Just $ Type.RVar $ pack "a", defLoc))
+            , (pack "y", (Just $ Type.RVar $ pack "a", defLoc))
+            ]
+            $ Expr.Tuple (Nothing, defLoc)
+            [ Expr.App (Nothing, defLoc)
+              (Expr.Var (Nothing, defLoc) $ pack "f")
+              [Expr.Var (Nothing, defLoc) $ pack "x"]
+            , Expr.App (Nothing, defLoc)
+              (Expr.Var (Nothing, defLoc) $ pack "f")
+              [Expr.Var (Nothing, defLoc) $ pack "x"]
+            ]
+        e' = Expr.Abs ( Just $ Type.Fun [ Type.Fun [ Type.RVar $ pack "a"] $ Type.RVar $ pack "b"
+                                        , Type.RVar $ pack "a"
+                                        , Type.RVar $ pack "a"
+                                        ]
+                        $ Type.Tuple [ Type.RVar $ pack "b", Type.RVar $ pack "b" ]
+                      , defLoc)
+             [ (pack "f", (Just $ Type.Fun [Type.RVar $ pack "a"] $ Type.RVar $ pack "b", defLoc))
+             , (pack "x", (Just $ Type.RVar $ pack "a", defLoc))
+             , (pack "y", (Just $ Type.RVar $ pack "a", defLoc))
+             ]
+             $ Expr.Tuple (Just $ Type.Tuple [ Type.RVar $ pack "b", Type.RVar $ pack "b" ], defLoc)
+             [ Expr.App (Just $ Type.RVar $ pack "b", defLoc)
+               (Expr.Var (Just $ Type.Fun [ Type.RVar $ pack "a" ] $ Type.RVar $ pack "b", defLoc)
+                 $ pack "f"
+               )
+               [Expr.Var (Just $ Type.RVar $ pack "a", defLoc)
+                 $ pack "x"
+               ]
+             , Expr.App (Just $ Type.RVar $ pack "b", defLoc)
+               (Expr.Var (Just $ Type.Fun [ Type.RVar $ pack "a" ] $ Type.RVar $ pack "b", defLoc)
+                 $ pack "f"
+               )
+               [Expr.Var (Just $ Type.RVar $ pack "a", defLoc)
+                 $ pack "x"
+               ]
+             ]
+        f = Expr.App (Nothing, defLoc) e
+            [ Expr.Var (Nothing, defLoc) $ pack "$id"
+            , Expr.Literal (Nothing, defLoc) $ Literal.Integer 5
+            , Expr.Literal (Nothing, defLoc) $ Literal.Character 'a'
+            ]
+    in evalStateT (runTC f) (initTC [] []) @?= Left (defLoc, UnifyFail Type.Integer Type.Character)
   ]

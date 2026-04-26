@@ -15,6 +15,7 @@ data Type = Character
            -- data T a b = ...
            -- T Int Int :: Data 0 [Int Int]
            | Data Int [Type]
+           | Forall [Text] Type
           deriving (Eq)
 
 instance Show Type where
@@ -27,5 +28,6 @@ instance Show Type where
   show (Variable i) = "?t" ++ show i
   show (Fun args ret) = Data.List.intercalate " -> " (Prelude.map show args) ++ " -> " ++ show ret
   show (Data i vars) = "Data$" ++ show i ++ "[" ++ Data.List.intercalate ", " (Prelude.map show vars) ++ "]"
+  show (Forall a x) = "∀" ++ Data.List.unwords (Prelude.map unpack a) ++ "." ++ show x
 
 type LocAnnT = (Maybe Type, Location)

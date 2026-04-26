@@ -13,7 +13,7 @@ Roadmap
 -------
 
 - [x] Prototype
-- [ ] Implementation (see [ROADMAP_compiler.markdown](ROADMAP_compiler.markdown))
+- [ ] Implementation (see [the compiler roadmap](ROADMAP_compiler.markdown))
 - [ ] Specification
 
 Licence

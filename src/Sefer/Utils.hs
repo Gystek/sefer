@@ -1,4 +1,4 @@
-module Sefer.Utils ( allThree, both, pairs, pairs2, fromJust ) where
+module Sefer.Utils ( allThree, both, pairs, pairs2 ) where
 
 both :: (a -> b) -> (a, a) -> (b, b)
 both f (x, y) = (f x, f y)
@@ -17,6 +17,3 @@ pairs :: [a] -> [(a, a)]
 pairs [] = []
 pairs (x:xs) = let mkp = (,) x
                in Prelude.map mkp xs ++ pairs xs
-
-fromJust :: Maybe a -> a
-fromJust (Just x) = x
