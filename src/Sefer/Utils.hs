@@ -1,4 +1,7 @@
-module Sefer.Utils ( allThree, both, pairs, pairs2 ) where
+module Sefer.Utils ( allThree, both, pairs, pairs2, map1 ) where
+
+map1 :: (a -> b) -> (a, c) -> (b, c)
+map1 f (x, y) = (f x, y)
 
 both :: (a -> b) -> (a, a) -> (b, b)
 both f (x, y) = (f x, f y)
