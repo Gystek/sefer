@@ -14,8 +14,8 @@ Frontend
 - [ ] Statement storage/expression extraction (replace constructor
       names)
 - [ ] Type aliases elimination
-- [x] Monomorphic bidirectional typechecking
-- [ ] Polymorphism
+- [ ] Basic bidirectional typechecking
+- [ ] Algebraic data types
 
 Middle-end
 ----------

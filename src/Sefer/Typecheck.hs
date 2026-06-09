@@ -1,230 +1,182 @@
-{-# LANGUAGE NamedFieldPuns #-}
-{-# LANGUAGE TupleSections #-}
-module Sefer.Typecheck ( Typechecker(..), TCError(..), initTC, runTC ) where
+module Sefer.Typecheck ( Typechecker(..), TCError(..), initTC ) where
 
 import Control.Applicative
 import Control.Monad
 import Control.Monad.Except
 import Control.Monad.State
 import Data.Foldable
-import Data.Text
 import Data.HashMap
+import Data.Tuple.Extra
 import Data.Maybe
 import Data.Text
 import qualified Sefer.Expr as Expr
-import qualified Sefer.Literal as Literal
 import Sefer.Location
-import qualified Sefer.Pattern as Pattern
 import qualified Sefer.Type as Type
-import Sefer.Statement
-import Sefer.Utils
 import qualified Data.List.Extra as Data.List
-import Sefer.Type (TypeVar)
+import Sefer.Type
 import qualified Control.Exception as Type
 import Sefer.Expr (Expr(fargs))
 import Data.Traversable (for)
 import Data.Functor
 
 data Typechecker = Typechecker
-                   { vg :: Int
-                   , lvl :: Int
-                   , bindings :: Map Text Type.Type
-                   , substs :: Map Int Type.Type
-                   }
+                   {}
                    deriving Show
 
-data TCError = HeteroPrim Type.Type Type.Type
-             | Unbound Text
-             | TupleArity Int Int
-             | FunArity Int Int
---             | CallArity Int Int
-             | ConstArity Int Int
-             | WrongADT Int Int
-             | UnifyFail Type.Type Type.Type
-             | InfiniteType Type.Type
-             | MissingAnnotations Expr.LocExprT Expr.LocExprT Int
+data TCError = NotSub Type Type
+             | UndefTVar Int
+             | UndefEVar Int
+             | InfiniteType Int Type
+             | IllFormed Type
+             | NoArrowBind Int
+             | NotInst Int Type
              deriving (Show, Eq)
 
-type Result = Either (Located TCError)
+type Result = Except (Located TCError)
 
-initTC :: [Constructor] -> [ADType] -> Typechecker
-initTC scs adts = Typechecker { vg = 0
-                              , lvl = 1
-                              , bindings = defaultBindings
-                              , substs = Data.HashMap.empty
-                              }
+initTC :: Typechecker
+initTC =
+  Typechecker
 
-defaultBindings :: Map Text Type.Type
-defaultBindings = Data.HashMap.fromList [ (pack "$addInt", Type.Fun [Type.Integer, Type.Integer] Type.Integer)
-                                        ]
+type Context = [CtxElem]
 
+data CtxElem = CTVar Int
+             | CBind Text Type
+             | CEVar Int
+             | CBVar Int Type
+             | CMark Int
+             deriving (Eq)
 
+getBinding :: Int -> Context -> Maybe Type
+getBinding _ [] = Nothing
+getBinding i ((CBVar j t):_) | i == j = Just t
+getBinding i (_:xs) = getBinding i xs
 
-runTC :: Expr.LocExprT -> StateT Typechecker Result Expr.LocExprT
-runTC = flip (.) tcExpr $ (=<<) applySubsts
+getVar :: Text -> Context -> Maybe Type
+getVar x (CBind y t:xs) | x == y = Just t
+getVar x (_:xs) = getVar x xs
 
--- utilities
+wft :: Context -> Type -> Bool
+wft ctx (Type.TVar i) = CTVar i `Prelude.elem` ctx
+wft ctx (Type.Fun a b) = wft ctx a && wft ctx b
+wft ctx (Type.Forall x t) = wft (CTVar x:ctx) t
+wft ctx (Type.EVar i) = CEVar i `Prelude.elem` ctx || isJust (getBinding i ctx)
+wft ctx (Type.Tuple ts) = Prelude.all (wft ctx) ts
+wft _ _ = True
 
-newVar :: StateT Typechecker Result TypeVar
-newVar = do
-  tc@Typechecker { vg, lvl } <- get
-  put tc { vg = vg + 1 }
-  pure (vg, lvl)
+wfctx :: Context -> Bool
+wfctx [] = True
+wfctx (x@(CTVar _):xs) = wfctx xs && x `Prelude.notElem` xs
+wfctx (x@(CEVar i):xs) = wfctx xs && x `Prelude.notElem` xs && isNothing (getBinding i xs)
+wfctx (CBind x t:xs) = wfctx xs && isNothing (getVar x xs) && wft xs t
+wfctx (CBVar i t:xs) = wfctx xs && wft xs t && CEVar i `Prelude.notElem` xs && isNothing (getBinding i xs)
+wfctx (x@(CMark i):xs) = wfctx xs && x `Prelude.notElem` xs && CEVar i `Prelude.notElem` xs && isNothing (getBinding i xs)
 
-occurs :: Location -> TypeVar -> Type.Type -> StateT Typechecker Result Type.Type
-occurs loc v t@(Type.Variable v')
-  |  v == v' = throwError (loc, InfiniteType t)
-occurs loc (vi, vl) (Type.Variable (i, l)) = do
-  Typechecker { substs } <- get
-  case Data.HashMap.lookup i substs of
-    Just t -> occurs loc (vi, vl) t
-    Nothing -> let l' = if member vi substs then l else min l vl
-               in pure $ Type.Variable (i, l')
-occurs loc v (Type.Tuple ts) = Type.Tuple <$> mapM (occurs loc v) ts
-occurs loc v (Type.Fun xs y) = Type.Fun <$> mapM (occurs loc v) xs <*> occurs loc v y
-occurs loc v (Type.Data i ts) = Type.Data i <$> mapM (occurs loc v) ts
-occurs _ _ t = pure t
+subst :: Location -> Context -> Type -> Result Type
+subst loc ctx (Type.Tuple ts) = Type.Tuple <$> mapM (subst loc ctx) ts
+subst loc ctx (Type.Fun a b) = do
+  sa <- subst loc ctx a
+  sb <- subst loc ctx b
+  pure $ Type.Fun sa sb
+subst loc ctx (Type.Forall x t) = Type.Forall x <$> subst loc ctx t
+subst loc ctx t@(Type.EVar i)
+  | Just t' <- getBinding i ctx = subst loc ctx t'
+  | CEVar i `Prelude.elem` ctx = pure t
+  | otherwise = throwError (loc, UndefEVar i)
+subst _ _ t = pure t
 
--- applySubstsT :: Map Int Type.Type -> Type.Type -> StateT Typechecker Result Type.Type
--- applySubstsT m (Type.Tuple ts) = Type.Tuple <$> mapM (applySubstsT m) ts
--- applySubstsT m (Type.Fun xs y) = Type.Fun <$> mapM (applySubstsT m) xs <*> applySubstsT m y
--- applySubstsT m (Type.Data i ts) = Type.Data i <$> mapM (applySubstsT m) ts
--- applySubstsT m t@(Type.Variable (i, _)) = case Data.HashMap.lookup i m of
---                                      Nothing -> pure t
---                                      Just t' -> applySubstsT m t'
--- applySubstsT _ t = pure t
+subst1 :: Type -> Type -> Type -> Type
+subst1 a b t | t == b = a
+subst1 a b (Type.Tuple as) = Type.Tuple $ Prelude.map (subst1 a b) as
+subst1 a b (Type.Fun t u) = Type.Fun (subst1 a b t) (subst1 a b u)
+subst1 a b (Type.Forall i t) | b /= Type.TVar i = Type.Forall i $ subst1 a b t
+subst1 _ _ t = t
 
--- applySubsts' :: Type.LocAnnT -> Expr.LocExprT -> StateT Typechecker Result Expr.LocExprT
--- applySubsts' st (Expr.Literal _ lit) = pure $ Expr.Literal st lit
--- applySubsts' st (Expr.Var _ x) = pure $ Expr.Var st x
--- applySubsts' st (Expr.Let _ (x, (xt, xl)) y z) = do
---   Typechecker { substs = m } <- get
---   xt' <- for xt $ applySubstsT m
---   y' <- applySubsts y
---   z' <- applySubsts z
---   pure $ Expr.Let st (x, (xt', xl)) y' z'
--- applySubsts' st (Expr.Cond _ ei et ee) = Expr.Cond st <$> applySubsts ei <*> applySubsts et <*> applySubsts ee
--- applySubsts' st (Expr.App _ f args) = Expr.App st <$> applySubsts f <*> mapM applySubsts args
--- applySubsts' st (Expr.Abs _ fargs e) = do
---   Typechecker { substs = m } <- get
---   fargs' <- forM fargs $ \(x, (t, l)) -> for t (applySubstsT m) <&> (x,) . (,l)
---   e' <- applySubsts e
---   pure $ Expr.Abs st fargs' e'
--- applySubsts' st (Expr.Tuple _ xs) = Expr.Tuple st <$> mapM applySubsts xs
--- applySubsts' st (Expr.Const _ i xs) = Expr.Const st i <$> mapM applySubsts xs
--- applySubsts' _ (Expr.Match _ _ _) = error "todo"
+hole1 :: Context -> [CtxElem] -> Maybe (Context, Context)
+hole1 xs [] = Just ([], xs)
+hole1 (x:xs) (y:ys)
+  | x == y = hole1 xs ys
+  | otherwise = hole1 xs (y:ys) <&> first (x:)
+hole1 [] _ = Nothing
 
--- applySubsts :: Expr.LocExprT -> StateT Typechecker Result Expr.LocExprT
--- applySubsts e = do
---   Typechecker { substs = m } <- get
---   let (t, loc) = Expr.ann e
---   t' <- for t $ applySubstsT m
---   e' <- applySubsts' (t', loc) e
---   case undecided e' of
---     Nothing -> pure e'
---     Just (i, e'') -> throwError (snd . Expr.ann $ e', MissingAnnotations  e' e'' i)
+hole2 :: Context -> ([CtxElem], [CtxElem]) -> Maybe (Context, Context, Context)
+hole2 (x:xs) ([], y1) = hole1 (x:xs) y1 <&> \(xs, ys) -> ([], xs, ys)
+hole2 (x:xs) (y0:y0s, y1)
+  | x == y0 = hole2 xs (y0s, y1)
+  | otherwise = hole2 xs (y0:y0s, y1) <&> first3 (x:)
 
--- undecided :: Expr.LocExprT -> Maybe (Int, Expr.LocExprT)
--- undecided _ = Nothing
+subt :: Location -> Context -> Type -> Type -> Result Context
+subt loc ctx (Type.TVar a) (Type.TVar b) | a == b = if isJust $ hole1 ctx [CTVar a] -- <:Var
+                                                    then pure ctx
+                                                    else throwError (loc, UndefTVar a)
+subt loc ctx (Type.EVar a) (Type.EVar b) | a == b = if isJust $ hole1 ctx [CEVar a] -- <:Exvar
+                                                    then pure ctx
+                                                    else throwError (loc, UndefEVar a)
+subt loc ctx Type.Character Type.Character = pure ctx -- <:Unit
+subt loc ctx Type.Integer Type.Integer = pure ctx
+subt loc ctx Type.Floating Type.Floating = pure ctx
+subt loc ctx Type.Boolean Type.Boolean = pure ctx
+subt loc ctx (Type.Tuple []) (Type.Tuple []) = pure ctx
+subt loc ctx (Type.Tuple (a:as)) (Type.Tuple (b:bs)) = do
+  ctx1 <- subt loc ctx a b
+  a2' <- subst loc ctx1 (Type.Tuple as)
+  b2' <- subst loc ctx1 (Type.Tuple bs)
+  subt loc ctx1 a2' b2'
+subt loc ctx (Type.Fun a1 a2) (Type.Fun b1 b2) = do -- <:->
+  ctx1 <- subt loc ctx b1 a1
+  a2' <- subst loc ctx1 a2
+  b2' <- subst loc ctx1 b2
+  subt loc ctx1 a2' b2'
+subt loc ctx (Type.Forall i a) b = do-- <:∀L
+  let a' = subst1 (Type.EVar i) (Type.TVar i) a
+  ctx1 <- subt loc (CEVar i:(CMark i:ctx)) a' b
+  pure . snd . fromJust $ hole1 ctx1 [CMark i]
+subt loc ctx a (Type.Forall i b) = do -- <:∀R
+  ctx1 <- subt loc (CTVar i:ctx) a b
+  pure . snd . fromJust $ hole1 ctx1 [CTVar i]
+subt loc ctx (Type.EVar i) a | isJust $ hole1 ctx [CEVar i] = do -- <:InstantiateL
+  canInst loc i a
+  instl loc ctx i a
+subt loc ctx a (Type.EVar i) | isJust $ hole1 ctx [CEVar i] = do -- <:InstantiateR
+  canInst loc i a
+  instr loc ctx a i
+subt loc _ a b = throwError (loc, NotSub a b)
 
--- typechecking
+canInst :: Location -> Int -> Type -> Result ()
+canInst loc i t@(Type.EVar j) | i == j = throwError (loc, InfiniteType i t)
+canInst loc i (Type.Tuple as) = mapM_ (canInst loc i) as
+canInst loc i (Type.Fun a b) = canInst loc i a >> canInst loc i b
+canInst _ _ _ = pure ()
 
-tvUnify :: Location -> TypeVar -> Type.Type -> StateT Typechecker Result ()
-tvUnify loc (vi, vl) t = do
-  tc@Typechecker { substs } <- get
-  case Data.HashMap.lookup vi substs of
-    Just t' -> unify loc t' t
-    Nothing -> occurs loc (vi, vl) t >>= \t -> put tc { substs = insert vi t substs }
+checkWft :: Location -> Context -> Type -> Result ()
+checkWft loc ctx t
+  | wft ctx t = pure ()
+  | otherwise = throwError (loc, IllFormed t)
 
-unify :: Location -> Type.Type -> Type.Type -> StateT Typechecker Result ()
-unify _ t1 t2
-  | t1 == t2 = pure ()
-unify loc (Type.Variable v) t2 = tvUnify loc v t2
-unify loc t1 (Type.Variable v) = tvUnify loc v t1
-unify loc (Type.Tuple ts1) (Type.Tuple ts2)
-  | Prelude.length ts1 /= Prelude.length ts2 = throwError (loc, TupleArity (Prelude.length ts1) (Prelude.length ts2))
-  | otherwise = mapM_ (uncurry $ unify loc) $ Prelude.zip ts1 ts2
-unify loc (Type.Fun xs1 y1) (Type.Fun xs2 y2)
-  | Prelude.length xs1 /= Prelude.length xs2 = throwError (loc, FunArity (Prelude.length xs1) (Prelude.length xs2))
-  | otherwise =  (mapM_ (uncurry $ unify loc) $ Prelude.zip xs1 xs2) >> unify loc y1 y2
-unify loc (Type.Data i ts1) (Type.Data j ts2)
-  | i /= j = throwError (loc, WrongADT i j)
-  | Prelude.length ts1 /= Prelude.length ts2 = throwError (loc, ConstArity (Prelude.length ts1) (Prelude.length ts2))
-  | otherwise =  mapM_ (uncurry $ unify loc) $ Prelude.zip ts1 ts2
-unify loc t1 t2 = throwError (loc, UnifyFail t1 t2)
+getArrowBinding :: Location -> Context -> Int -> Result (Int, Int)
+getArrowBinding loc [] i = throwError (loc, NoArrowBind i)
+getArrowBinding _ ((CBVar i (Type.Fun (Type.EVar a) (Type.EVar b))):(CEVar k):(CEVar l):_) j | i == j && a == k && b == l = pure (a, b)
+getArrowBinding loc (_:xs) i = getArrowBinding loc xs i
 
-generalise :: Type.Type -> StateT Typechecker Result Type.Type
-generalise t@(Type.Variable (vi, vl)) = do
-  Typechecker { lvl, substs } <- get
-  case Data.HashMap.lookup vi substs of
-    Just t' -> generalise t'
-    Nothing -> pure $ if vl > lvl then Type.QVar (pack $ "a" ++ show vi) else t
-generalise (Type.Tuple ts) = Type.Tuple <$> mapM generalise ts
-generalise (Type.Fun xs y) = Type.Fun <$> mapM generalise xs <*> generalise y
-generalise (Type.Data i ts) = Type.Data i <$> mapM generalise ts
-generalise t = pure t
+instl :: Location -> Context -> Int -> Type -> Result Context
+instl loc ctx i t -- InstLSolve
+  | Just (ctx1, ctx0) <- hole1 ctx [CEVar i] = do
+      checkWft loc ctx0 t
+      pure $ ctx1 ++ CBVar i t:ctx0
+  | otherwise = throwError (loc, UndefEVar i)
+instl loc ctx i (Type.EVar j) -- InstLReach
+  | Just (ctx2, ctx1, ctx0) <- hole2 ctx ([CEVar j], [CEVar i]) = pure $ ctx2 ++ CBVar j (Type.EVar i):ctx1 ++ CEVar i:ctx0
+  | isJust $ hole1 ctx [CEVar i] = throwError (loc, UndefEVar j)
+  | otherwise = throwError (loc, UndefEVar i)
+instl loc ctx i (Type.Fun a1 a2) | isJust $ hole1 ctx [CEVar i] = do -- InstLArr
+  (i1, i2) <- getArrowBinding loc ctx i
+  ctx1 <- instr loc ctx a1 i1
+  a2' <- subst loc ctx1 a2
+  instl loc ctx1 i2 a2'
+instl loc ctx i (Type.Forall j b) | isJust $ hole1 ctx [CEVar i] = do -- InstLAIIR
+  ctx1 <- instl loc (CTVar j:ctx) i b
+  pure . snd . fromJust $ hole1 ctx1 [CTVar i]
+instl loc _ i t = throwError (loc, NotInst i t)
 
-instantiateL' :: [Type.Type] -> Map Text TypeVar -> StateT Typechecker Result ([Type.Type], Map Text TypeVar)
-instantiateL' [] m = pure ([], m)
-instantiateL' (x:xs) m = do
-  (x', m) <- instantiate' x m
-  (xs', m) <- instantiateL' xs m
-  pure (x':xs, m)
-
-instantiate' :: Type.Type -> Map Text TypeVar -> StateT Typechecker Result (Type.Type, Map Text TypeVar)
-instantiate' (Type.QVar x) m = case Data.HashMap.lookup x m of
-                                         Just v -> pure (Type.Variable v, m)
-                                         Nothing -> do
-                                           v <- newVar
-                                           pure (Type.Variable v, insert x v m)
-instantiate' t@(Type.Variable (vi, _)) m = do
-          Typechecker { substs } <- get
-          case Data.HashMap.lookup vi substs of
-            Just t -> instantiate' t m
-            Nothing -> pure (t, m)
-instantiate' (Type.Tuple ts) m = map1 Type.Tuple <$> instantiateL' ts m
-instantiate' (Type.Fun xs y) m = do
-  (xs', m) <- instantiateL' xs m
-  (y', m) <- instantiate' y m
-  pure (Type.Fun xs' y', m)
-instantiate' (Type.Data i ts) m = map1 (Type.Data i) <$> instantiateL' ts m
-instantiate' t m = pure (t, m)
-
-instantiate :: Type.Type -> StateT Typechecker Result Type.Type
-instantiate t = fst <$> instantiate' t Data.HashMap.empty
-
-tcExpr :: Expr.LocExprT -> StateT Typechecker Result Expr.LocExprT
-tcExpr e@(Expr.Var (t, loc) x) = do
-  Typechecker { bindings } <- get
-  case Data.HashMap.lookup x bindings of
-    Nothing -> throwError (loc, Unbound x)
-    Just t' -> case t of
-                 Nothing -> tcExpr $ Expr.Var (Just t', loc) x
-                 Just t -> unify loc t t' >> pure e
-tcExpr (Expr.Abs (t, loc) fargs expr) = do
-  -- fresh type variables for arguments
-  tfargs <- mapM (const $ Type.Variable <$> newVar) fargs
-  -- unify type variables against the declared type of arguments
-  let fargs' = Prelude.zipWith (\(x, (t, loc)) t' -> (x, (Just $ t' `fromMaybe` t, loc))) fargs tfargs
-  mapM_ (\(t, (_, (t', loc))) -> unify loc t $ fromJust t') $ Prelude.zip tfargs fargs'
-  tc@Typechecker { bindings } <- get
-  let nb = Prelude.foldl (flip (\((x, _), t') -> insert x t')) bindings $ Prelude.zip fargs tfargs
-  -- put the arguments in the environment
-  put tc { bindings = nb }
-  -- typecheck the return value in this context
-  expr' <- tcExpr expr
-  -- remove the arguments from the environment
-  put tc { bindings }
-  let t' = Type.Fun tfargs $ fromJust . fst . Expr.ann $ expr'
-  case t of
-    Nothing -> tcExpr $ Expr.Abs (Just t', loc) fargs' expr'
-    Just t -> unify loc t t' >> pure (Expr.Abs (Just t, loc) fargs' expr')
-tcExpr (Expr.App (t, loc) f cargs) = do
-  f' <- tcExpr f
-  cargs' <- mapM tcExpr cargs
-  t' <- Type.Variable <$> newVar
-  unify loc (fromJust . fst . Expr.ann $ f') $ flip Type.Fun t' $ Prelude.map (fromJust . fst . Expr.ann) cargs'
-  case t of
-    Nothing -> tcExpr $ Expr.App (Just t', loc) f' cargs'
-    Just t -> unify loc t t' >> pure (Expr.App (Just t, loc) f' cargs')
-tcExpr _ = error "todo"
+instr :: Location -> Context -> Type -> Int -> Result Context
+instr _ _ _ _ = error "TODO"
