@@ -1,0 +1,4 @@
+(executable
+ (public_name sefer)
+ (name main)
+ (libraries sefer))

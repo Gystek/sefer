@@ -1,27 +1,40 @@
 /draft
 
-# sourced from github/gitignore/Haskell.gitignore
+# pulled from github/gitignore
 
-dist
-dist-*
-cabal-dev
+*.annot
+*.cmo
+*.cma
+*.cmi
+*.a
 *.o
-*.hi
-*.hie
-*.chi
-*.chs.h
-*.dyn_o
-*.dyn_hi
-.hpc
-.hsenv
-.cabal-sandbox/
-cabal.sandbox.config
-*.prof
-*.aux
-*.hp
-*.eventlog
-.stack-work/
-cabal.project.local
-cabal.project.local~
-.HTF/
-.ghc.environment.*
+*.cmx
+*.cmxs
+*.cmxa
+
+# Files containing detailed information about the compilation (generated
+# by / when invoked using the option ).
+# These files are typically useful for code inspection tools
+# (e.g. Merlin).
+*.cmt
+*.cmti
+
+# ocamlbuild and Dune default working directory
+_build/
+
+# ocamlbuild targets
+*.byte
+*.native
+
+# oasis generated files
+setup.data
+setup.log
+
+# Merlin configuring file for Vim and Emacs
+.merlin
+
+# Dune generated files
+*.install
+
+# Local OPAM switch
+_opam/
