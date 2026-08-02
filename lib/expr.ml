@@ -1,13 +1,14 @@
-type literal =
-  | Integer of int
+type literal = Integer of int | Boolean of bool
 
 type 'a expr =
-  | Literal of 'a * literal
-  | Tuple of 'a * 'a expr list
-  | Variable of 'a * string
-  | Application of 'a * 'a expr * 'a expr list
-  | Abstraction of 'a * ('a * string) list * 'a expr
-  | Let of 'a * ('a * string) * 'a expr * 'a expr
-  | If of 'a * 'a expr * 'a expr * 'a expr
+  | Literal of literal
+  | Tuple of 'a list
+  | Variable of string
+  | Application of 'a * 'a list
+  | Abstraction of (string * Type.typ option) list * 'a
+  | Let of string * 'a * 'a
+  | If of 'a * 'a * 'a
 
-type locexprt = Type.loctyp expr
+type locexprt = { ann : Type.loctyp; exp : locexprt expr }
+
+let get_type e = snd e.ann |> Option.get
