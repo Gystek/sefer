@@ -1,0 +1,68 @@
+\chapter{Formal specification}
+
+\section{Type system}
+
+In this section, the inference judgement is written as $\Rightarrow$ while the
+checking judgment is written as $\Leftarrow$. There is only one checking rule as
+it relies on inference rules in all cases. The sentence ``$\tau$ unifies with
+$\tau'$'' is written as $\tau \doteq \tau'$. $\hat{\tau}$ indicates that $\tau$
+is a fresh type variable. $\tau \preceq \sigma$ indicates that the polytype $\sigma$
+is instanciated in the monotype $\tau$. The generalisation of a type $\tau$ in
+context $\Gamma$ is written as $\tilde\Gamma(\tau) = \forall \hat{\alpha}. \tau$
+where $\hat{\alpha}$ is the set of variables that are free in both $\tau$ and
+$\Gamma$ (not bound by a $\forall$ in $\tau$ and not unified with another type
+in $\Gamma$).
+
+Logical notations are misused here as the unification operation is stateful,
+however it can be expressed as substitutions instead. We chose to write them
+as such to be closer to the actual algorithm.
+
+Let $\iota \in \{\texttt{Char}, \texttt{Bool}, \texttt{Int}, \texttt{Float}\}$
+and $c_\iota : \iota$.
+
+\begin{equation*}
+\infer[\textsc{Chk}]
+	{\Gamma \vdash e \Leftarrow \tau}
+	{\Gamma \vdash e \Rightarrow \tau'
+	\quad \tau \doteq \tau'}\quad
+\infer[\textsc{Lit}]{\Gamma \vdash c_\iota \Rightarrow \iota}{}\quad
+\infer[\textsc{Var}]
+	{\Gamma \vdash x \Rightarrow \tau}
+    	{x : \sigma \in \Gamma
+    	\quad \tau \preceq \sigma}\quad
+\infer[\textsc{Tup}]
+	{\Gamma \vdash (e_1, \ldots, e_n) \Rightarrow \tau_1 \times \ldots \times \tau_n}
+	{\Gamma \vdash e_1 \Leftarrow \tau_1
+	\quad\ldots
+	\quad \Gamma \vdash e_n \Leftarrow \tau_n}
+\end{equation*}
+
+\begin{equation*}
+\infer[\textsc{Abs}]
+	{\Gamma \vdash \texttt{fun } x_1\;\ldots\;x_n = e \Rightarrow \tau_1 \rightarrow \ldots \rightarrow \tau_n \rightarrow \tau}
+	{\Gamma, x_1 : \hat{\tau_1}, \ldots, x_n : \hat{\tau_n} \vdash e \Leftarrow \tau}\quad
+\infer[\textsc{Let}]
+	{\Gamma \vdash \texttt{let } x = e \texttt{ in } e' \Rightarrow \tau'}
+	{\Gamma \vdash e \Leftarrow \tau
+	\quad \Gamma, x: \tilde\Gamma(\tau) \vdash e' \Leftarrow \tau'}
+\end{equation*}
+
+\begin{equation*}
+\infer[\textsc{App}]
+	{\Gamma \vdash f\;e_1\;\ldots\;e_n \Rightarrow \tau'}
+	{\Gamma \vdash f \Leftarrow \tau
+	\quad\Gamma \vdash e_0 \Leftarrow \tau_0
+	\quad\ldots
+	\quad\Gamma\vdash e_n \Leftarrow \tau_n
+	\quad\tau \doteq \tau_0 \rightarrow \ldots \rightarrow \tau_n \rightarrow \hat{\tau'}}
+\end{equation*}
+
+\begin{equation*}
+\infer[\textsc{If}]
+	{\Gamma \vdash \texttt{if } e \texttt{ then } e' \texttt{ else } e'' \Rightarrow \tau'}
+	{\Gamma \vdash e \Leftarrow \tau
+	\quad \tau \doteq \textbf{B}
+	\quad \Gamma \vdash e' \Leftarrow \tau'
+	\quad \Gamma \vdash e'' \Leftarrow \tau''
+	\quad \tau' \doteq \tau''}
+\end{equation*}

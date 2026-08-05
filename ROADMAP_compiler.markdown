@@ -15,6 +15,7 @@ Frontend
       names)
 - [ ] Type aliases elimination
 - [ ] Basic bidirectional typechecking
+- [ ] Pattern matching
 - [ ] Algebraic data types
 
 Middle-end
