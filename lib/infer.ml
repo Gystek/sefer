@@ -13,7 +13,8 @@ type tcerror =
 type 'a tcresult = ('a, tcerror located) result
 type tc = { mutable nv : int; ctx : (string, typ) Hashtbl.t; vars : typ Uf.t }
 
-let init_tc () : tc = { nv = 0; ctx = Hashtbl.create 20; vars = Uf.create 20 }
+let init_tc () : tc =
+  { nv = 0; ctx = Hashtbl.create 20; vars = Uf.create 20 size }
 
 let newvar tc : typ =
   tc.nv <- tc.nv + 1;
@@ -25,7 +26,7 @@ let inst tc : typ -> typ =
     | Forall (i, t) ->
         Hashtbl.add m i (newvar tc);
         inst' m t
-    | Arrow (xs, t) -> Arrow (List.map (inst' m) xs, inst' m t)
+    | Arrow (t, t') -> Arrow (inst' m t, inst' m t')
     | Tuple ts -> Tuple (List.map (inst' m) ts)
     | t -> t
   in
@@ -34,25 +35,19 @@ let inst tc : typ -> typ =
 let rec occurs (i : int) : typ -> bool = function
   | Var j when i == j -> true
   | Forall (j, t) when i <> j -> occurs i t
-  | Arrow (xs, t) -> occurs i t || List.exists (occurs i) xs
+  | Arrow (t, t') -> occurs i t || occurs i t'
   | Tuple ts -> List.exists (occurs i) ts
   | _ -> false
 
 let rec unify tc loc (t : typ) (t' : typ) : typ tcresult =
-  Uf.insert tc.vars t;
-  Uf.insert tc.vars t';
-  let t : typ = Uf.find tc.vars t and t' : typ = Uf.find tc.vars t' in
   match (t, t') with
   | Var _, Var _ -> Uf.union tc.vars t t' |> Result.ok
   | Var i, t | t, Var i ->
       if occurs i t then Error (loc, InfiniteType (i, t))
       else Uf.union tc.vars t t' |> Result.ok
-  | Arrow (xs, t), Arrow (ys, t') ->
-      if List.length xs <> List.length ys then
-        Error (loc, ArityMismatch (xs, ys))
-      else
-        mapM2 (unify tc loc) xs ys >>= fun zs ->
-        unify tc loc t t' |> Result.map (fun t'' -> Arrow (zs, t''))
+  | Arrow (t0, t1), Arrow (t0', t1') ->
+      unify tc loc t0 t0' >>= fun t0'' ->
+      unify tc loc t1 t1' |> Result.map (fun t1'' -> Arrow (t0'', t1''))
   | Tuple ts, Tuple ts' ->
       if List.length ts <> List.length ts' then
         Error (loc, ArityMismatch (ts, ts'))
@@ -64,8 +59,10 @@ let rec unify tc loc (t : typ) (t' : typ) : typ tcresult =
 let generalise tc t : typ =
   let rec generalise' fv = function
     | Var i ->
-        (* is "bound to itself" free or not? is "bound to a free variable" free or not? *)
-        if not (Uf.has tc.vars (Var i) || List.mem i fv) then (i :: fv, Var i)
+        if
+          ((not (Uf.has tc.vars (Var i))) || Uf.find tc.vars (Var i) = Var i)
+          && not (List.mem i fv)
+        then (i :: fv, Var i)
         else (fv, Var i)
     | Tuple ts ->
         map_snd
@@ -76,16 +73,10 @@ let generalise tc t : typ =
                (fv', t' :: ts'))
              (fv, []) ts)
     | Forall (i, t) -> generalise' (i :: fv) t
-    | Arrow (xs, t) ->
-        let fv', xs' =
-          List.fold_left
-            (fun (fv, xs') t ->
-              let fv', t' = generalise' fv t in
-              (fv', t' :: xs'))
-            (fv, []) xs
-        in
-        let fv'', t' = generalise' fv' t in
-        (fv'', Arrow (List.rev xs', t'))
+    | Arrow (t0, t1) ->
+        let fv', t0' = generalise' fv t0 in
+        let fv'', t1' = generalise' fv' t1 in
+        (fv'', Arrow (t0', t1'))
     | t -> (fv, t)
   in
   let fv, t' = generalise' [] t in
@@ -95,7 +86,8 @@ let rec check tc (e : locexprt) : locexprt tcresult =
   match e.ann with
   | loc, Some t ->
       infer tc e >>= fun e' ->
-      snd e'.ann |> Option.get |> unify tc loc t |> Result.map (Fun.const e')
+      snd e'.ann |> Option.get |> unify tc loc t
+      |> Result.map (fun t' -> { e' with ann = (fst e'.ann, Some t') })
   | _, None -> infer tc e
 
 and infer tc e : locexprt tcresult =
@@ -110,8 +102,14 @@ and infer tc e : locexprt tcresult =
       check tc f >>= fun f' ->
       mapM (check tc) args >>= fun args' ->
       let t = newvar tc in
-      unify tc (fst e.ann) (get_type f') (Arrow (List.map get_type args', t))
-      |> Result.map (Fun.const { e with ann = (fst e.ann, Some t) })
+      List.map get_type args'
+      |> (fun xs -> List.fold_right (fun t t' -> Arrow (t, t')) xs t)
+      |> unify tc (fst e.ann) (get_type f')
+      |> Result.map (fun tf ->
+             {
+               ann = (fst e.ann, Some t);
+               exp = Application ({ f' with ann = (fst e.ann, Some tf) }, args');
+             })
   | Abstraction (args, e) ->
       let argst =
         List.map (fun (v, t) -> (v, Option.value t ~default:(newvar tc))) args
@@ -122,7 +120,11 @@ and infer tc e : locexprt tcresult =
              let t' = get_type e' in
              List.iter (fun (v, _) -> Hashtbl.remove tc.ctx v) argst;
              {
-               ann = (fst e.ann, Some (Arrow (List.map snd argst, t')));
+               ann =
+                 ( fst e.ann,
+                   Some
+                     ( List.map snd argst |> fun xs ->
+                       List.fold_right (fun t t' -> Arrow (t, t')) xs t' ) );
                exp = Abstraction (List.map (map_snd Option.some) argst, e');
              })
   | Let (x, y, z) ->
@@ -146,12 +148,15 @@ and infer tc e : locexprt tcresult =
       check tc et >>= fun et' ->
       check tc ee >>= fun ee' ->
       unify tc (fst ee.ann) (get_type et') (get_type ee')
-      |> Result.map
-           (Fun.const
-              {
-                ann = (fst e.ann, Some (get_type et'));
-                exp = If (ei', et', ee');
-              })
+      |> Result.map (fun t' ->
+             {
+               ann = (fst e.ann, Some t');
+               exp =
+                 If
+                   ( ei',
+                     { et' with ann = (fst et'.ann, Some t') },
+                     { ee' with ann = (fst ee'.ann, Some t') } );
+             })
   | Literal lit -> (
       match lit with
       | Integer _ -> Ok { e with ann = (fst e.ann, Some Integer) }
