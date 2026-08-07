@@ -11,14 +11,50 @@ type tcerror =
   | MissingAnnot of locexprt
 
 type 'a tcresult = ('a, tcerror located) result
-type tc = { mutable nv : int; ctx : (string, typ) Hashtbl.t; vars : typ Uf.t }
+
+type tc = {
+  mutable nv : int;
+  ctx : (string, typ) Hashtbl.t;
+  vars : (int, typ) Hashtbl.t;
+}
 
 let init_tc () : tc =
-  { nv = 0; ctx = Hashtbl.create 20; vars = Uf.create 20 size }
+  { nv = 0; ctx = Hashtbl.create 20; vars = Hashtbl.create 20 }
 
 let newvar tc : typ =
   tc.nv <- tc.nv + 1;
-  Var (tc.nv - 1)
+  let i = tc.nv - 1 in
+  let t = Var i in
+  Hashtbl.add tc.vars i t;
+  t
+
+let rec resolve tc : typ -> typ = function
+  | Var i -> find_var tc i
+  | Forall (_, t) -> resolve tc t
+  | Arrow (t, t') -> Arrow (resolve tc t, resolve tc t')
+  | Tuple ts -> Tuple (List.map (resolve tc) ts)
+  | t -> t
+
+and find_var tc i : typ =
+  let t = Hashtbl.find tc.vars i in
+  if t = Var i then t
+  else
+    let t' = resolve tc t in
+    Hashtbl.replace tc.vars i t';
+    t'
+
+let union_vars tc i j : typ =
+  let t = find_var tc i and t' = find_var tc j in
+  let s = size t and s' = size t' in
+  if t <> t' then
+    if s < s' then (
+      Hashtbl.replace tc.vars i t';
+      t')
+    else (
+      Hashtbl.replace tc.vars j t;
+      t)
+  else if s < s' then t'
+  else t
 
 let inst tc : typ -> typ =
   let rec inst' m = function
@@ -40,11 +76,14 @@ let rec occurs (i : int) : typ -> bool = function
   | _ -> false
 
 let rec unify tc loc (t : typ) (t' : typ) : typ tcresult =
+  let t = resolve tc t and t' = resolve tc t' in
   match (t, t') with
-  | Var _, Var _ -> Uf.union tc.vars t t' |> Result.ok
+  | Var i, Var j -> union_vars tc i j |> Result.ok
   | Var i, t | t, Var i ->
       if occurs i t then Error (loc, InfiniteType (i, t))
-      else Uf.union tc.vars t t' |> Result.ok
+      else (
+        Hashtbl.replace tc.vars i t;
+        Ok t)
   | Arrow (t0, t1), Arrow (t0', t1') ->
       unify tc loc t0 t0' >>= fun t0'' ->
       unify tc loc t1 t1' |> Result.map (fun t1'' -> Arrow (t0'', t1''))
@@ -59,10 +98,8 @@ let rec unify tc loc (t : typ) (t' : typ) : typ tcresult =
 let generalise tc t : typ =
   let rec generalise' fv = function
     | Var i ->
-        if
-          ((not (Uf.has tc.vars (Var i))) || Uf.find tc.vars (Var i) = Var i)
-          && not (List.mem i fv)
-        then (i :: fv, Var i)
+        if Hashtbl.find tc.vars i = Var i && not (List.mem i fv) then
+          (i :: fv, Var i)
         else (fv, Var i)
     | Tuple ts ->
         map_snd
@@ -162,9 +199,25 @@ and infer tc e : locexprt tcresult =
       | Integer _ -> Ok { e with ann = (fst e.ann, Some Integer) }
       | Boolean _ -> Ok { e with ann = (fst e.ann, Some Boolean) })
 
+let rec gen_res_expr tc e : locexprt =
+  let gen_res_expr' = function
+    | Literal l -> Literal l
+    | Tuple es -> Tuple (List.map (gen_res_expr tc) es)
+    | Variable x -> Variable x
+    | Application (f, xs) ->
+        Application (gen_res_expr tc f, List.map (gen_res_expr tc) xs)
+    | Abstraction (xs, e) -> Abstraction (xs, gen_res_expr tc e)
+    | Let (x, y, z) -> Let (x, gen_res_expr tc y, gen_res_expr tc z)
+    | If (ei, et, ee) ->
+        If (gen_res_expr tc ei, gen_res_expr tc et, gen_res_expr tc ee)
+  in
+  let t' = get_type e |> resolve tc |> generalise tc
+  and e' = gen_res_expr' e.exp in
+  { ann = (fst e.ann, Some t'); exp = e' }
+
+let rec gen_res_expr_it tc e =
+  let e' = gen_res_expr tc e in
+  if e' <> e then gen_res_expr_it tc e' else e
+
 let run_tc tc e : locexprt tcresult =
-  check tc e
-  |> Result.map (fun e' ->
-         let t = get_type e' in
-         let t' = generalise tc t in
-         { e' with ann = (fst e.ann, Some t') })
+  check tc e |> Result.map (gen_res_expr_it tc)

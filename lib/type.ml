@@ -19,6 +19,7 @@ let rec string_of_typ : typ -> string = function
   | Var i -> "α" ^ string_of_int i
   | Forall (i, t) -> "∀α" ^ string_of_int i ^ "." ^ string_of_typ t
   | Arrow (t, t') -> string_of_typ t ^ " → " ^ string_of_typ t'
-  | Tuple ts -> List.map string_of_typ ts |> String.concat " * " |> fun x -> "(" ^ x ^ ")"
+  | Tuple ts ->
+      List.map string_of_typ ts |> String.concat " * " |> fun x -> "(" ^ x ^ ")"
   | Integer -> "ℕ"
   | Boolean -> "𝔹"
