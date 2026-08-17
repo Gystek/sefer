@@ -10,6 +10,19 @@ type tcerror =
   | InfiniteType of int * typ
   | MissingAnnot of locexprt
 
+let pp_tcerror fmt = function
+  | Unbound x -> Format.fprintf fmt "unbound variable `%s`" x
+  | ArityMismatch (xs, ys) ->
+    Format.fprintf fmt "cannot unify type lists of different arity ";
+    List.iter (Format.fprintf fmt "%a" Type.pp) xs;
+    Format.fprintf fmt " and ";
+    List.iter (Format.fprintf fmt "%a" Type.pp) ys
+  | UnifyFail (t, t') -> Format.fprintf fmt "cannot unify %a with %a" Type.pp t Type.pp t'
+  | InfiniteType (i, t) -> Format.fprintf fmt "variable α%d is present in type %a, resulting in an infinite type" i Type.pp t
+  | MissingAnnot e -> Format.fprintf fmt "missing annotations to typecheck expression: %a" pp_locexpr e
+
+let equal_tcerror e e' = e = e'
+
 type 'a tcresult = ('a, tcerror located) result
 
 type tc = {

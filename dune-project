@@ -11,7 +11,7 @@
 
 (maintainers "Gustek <gustek@riseup.net>")
 
-(license COPYING)
+(license  GPL-2.0-only)
 
 (documentation https://github.com/Gystek/sefer)
 
@@ -19,7 +19,6 @@
  (name sefer)
  (synopsis "Purely functional data-processing")
  (description "A purely functional data-processing language based on iterator combination")
- (depends ocaml)
+ (depends ocaml (alcotest :with-test))
  (tags
   (language iterators "data processing")))
-

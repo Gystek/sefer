@@ -15,11 +15,30 @@ let rec size : typ -> int = function
 
 type loctyp = typ option Location.located
 
-let rec string_of_typ : typ -> string = function
-  | Var i -> "α" ^ string_of_int i
-  | Forall (i, t) -> "∀α" ^ string_of_int i ^ "." ^ string_of_typ t
-  | Arrow (t, t') -> string_of_typ t ^ " → " ^ string_of_typ t'
-  | Tuple ts ->
-      List.map string_of_typ ts |> String.concat " * " |> fun x -> "(" ^ x ^ ")"
-  | Integer -> "ℕ"
-  | Boolean -> "𝔹"
+(* could be done more intelligently by treating
+   α-equivalence as equality
+ *)
+
+let rec equal t t' : bool =
+  match (t, t') with
+  | Integer, Integer -> true
+  | Boolean, Boolean -> true
+  | Tuple ts, Tuple ts' -> List.for_all2 equal ts ts'
+  | Arrow (t0, t1), Arrow (t0', t1') -> equal t0 t0' && equal t1 t1'
+  | Forall (i, t), Forall (j, t') -> i = j && equal t t'
+  | Var i, Var j -> i = j
+  | _ -> false
+
+let rec pp f : typ -> unit = function
+  | Var i -> Format.fprintf f "α%d" i
+  | Forall (i, t) -> Format.fprintf f "∀α%d.%a" i pp t
+  | Arrow (t, t') -> Format.fprintf f "%a → %a" pp t pp t'
+  | Tuple [] -> Format.fprintf f "()"
+  | Tuple (t :: ts) ->
+      Format.fprintf f "(%a" pp t;
+      List.iter (Format.fprintf f " * %a" pp) ts;
+      Format.fprintf f ")"
+  | Integer -> Format.fprintf f "ℕ"
+  | Boolean -> Format.fprintf f "𝔹"
+
+let string_of_typ t : string = Format.sprintf "%a" t pp
