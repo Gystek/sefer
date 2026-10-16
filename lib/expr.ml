@@ -36,7 +36,7 @@ let rec pp fmt = function
       Format.fprintf fmt "%a" pp (get_exp f);
       List.map get_exp xs |> List.iter (Format.fprintf fmt " %a" pp)
   | Abstraction (xs, e) ->
-    Format.fprintf fmt "(fun";
+      Format.fprintf fmt "(fun";
       List.iter
         (fun (x, t) ->
           match t with
@@ -44,7 +44,7 @@ let rec pp fmt = function
           | Some t -> Format.fprintf fmt " (%s : %a)" x Type.pp t)
         xs;
       Format.fprintf fmt " = ";
-    Format.fprintf fmt "%a)" pp (get_exp e)
+      Format.fprintf fmt "%a)" pp (get_exp e)
   | Let (x, y, z) ->
       Format.fprintf fmt "let %s = %a in %a" x pp (get_exp y) pp (get_exp z)
   | If (ei, et, ee) ->

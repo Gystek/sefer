@@ -12,11 +12,58 @@ let lte t e = { ann = (l, Some t); exp = e }
 (* let expr_testable = Alcotest.testable pp equal *)
 
 let location_testable = Alcotest.testable Location.pp Location.equal
-
 let locexpr_testable = Alcotest.testable pp_locexpr equal_locexpr
-
 let tcerror_testable = Alcotest.testable pp_tcerror equal_tcerror
-let result_tcerror_locexpr_testable = Alcotest.result locexpr_testable (Alcotest.pair location_testable tcerror_testable)
+
+let result_tcerror_locexpr_testable =
+  Alcotest.result locexpr_testable
+    (Alcotest.pair location_testable tcerror_testable)
+
+(* TODO: copy sound-eager tests *)
+
+let test_mono_if () =
+  let raw =
+    le
+      (If
+         ( le (Expr.Literal (Expr.Boolean true)),
+           le (Abstraction ([ ("x", None) ], le (Variable "x"))),
+           le (Abstraction ([ ("x", None) ], le (Variable "x"))) ))
+  in
+  let exp =
+    Ok
+      (lte
+         (Type.Forall (0, Type.Arrow (Type.Var 0, Type.Var 0)))
+         (If
+            ( lte Type.Boolean (Expr.Literal (Expr.Boolean true)),
+              lte
+                (Type.Forall (0, Type.Arrow (Type.Var 0, Type.Var 0)))
+                (Abstraction
+                   ( [ ("x", Some (Type.Var 0)) ],
+                     lte (Type.Var 0) (Variable "x") )),
+              lte
+                (Type.Forall (1, Type.Arrow (Type.Var 1, Type.Var 1)))
+                (Abstraction
+                   ( [ ("x", Some (Type.Var 1)) ],
+                     lte (Type.Var 1) (Variable "x") )) )))
+  and got = run_tc (init_tc ()) raw in
+  Format.printf "raw: %a\n" pp raw.exp;
+  Format.printf "exp: %a\n" pp_locexpr (Result.get_ok exp);
+  Format.printf "got: %a\n" pp_locexpr (Result.get_ok got);
+  Alcotest.check result_tcerror_locexpr_testable "same inference" exp got
+
+let test_poly_simple () =
+  let raw = le (Abstraction ([ ("x", None) ], le (Variable "x"))) in
+  let exp =
+    Ok
+      (lte
+         (Type.Forall (0, Type.Arrow (Type.Var 0, Type.Var 0)))
+         (Abstraction
+            ([ ("x", Some (Type.Var 0)) ], lte (Type.Var 0) (Variable "x"))))
+  and got = run_tc (init_tc ()) raw in
+  Format.printf "raw: %a\n" pp raw.exp;
+  Format.printf "exp: %a\n" pp_locexpr (Result.get_ok exp);
+  Format.printf "got: %a\n" pp_locexpr (Result.get_ok got);
+  Alcotest.check result_tcerror_locexpr_testable "same inference" exp got
 
 let test_poly_complex () =
   let raw =
@@ -161,13 +208,19 @@ let test_poly_complex () =
                                      ]);
                               ] ));
                      ] )) )))
-  and got = run_tc (init_tc ()) raw
-  in
+  and got = run_tc (init_tc ()) raw in
   Format.printf "raw: %a\n" pp raw.exp;
   Format.printf "exp: %a\n" pp_locexpr (Result.get_ok exp);
   Format.printf "got: %a\n" pp_locexpr (Result.get_ok got);
-  Alcotest.check result_tcerror_locexpr_testable "same inference" got exp
+  Alcotest.check result_tcerror_locexpr_testable "same inference" exp got
 
 let () =
   Alcotest.run "typecheck"
-    [ ("poly", [ Alcotest.test_case "complex" `Quick test_poly_complex ]) ]
+    [
+      ("mono", [ Alcotest.test_case "if" `Quick test_mono_if ]);
+      ( "poly",
+        [
+          Alcotest.test_case "simple" `Quick test_poly_simple;
+          Alcotest.test_case "complex" `Quick test_poly_complex;
+        ] );
+    ]
